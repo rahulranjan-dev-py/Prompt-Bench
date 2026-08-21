@@ -5,6 +5,9 @@
   "description": "Prompt-Bench desktop app for Windows 11 (Electron + React + Vite)",
   "license": "MIT",
 
+  "//author": "electron-builder warns \"author is missed\" without this and leaves the installer's Publisher field blank.",
+  "author": "Rahul Ranjan",
+
   "//main": "Electron's entry point. Must be CommonJS, which is why there is no \"type\": \"module\" field.",
   "main": "electron/main.js",
 
