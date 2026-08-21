@@ -41,12 +41,18 @@ Prompt-Bench/
 ├─ electron/
 │  ├─ main.js            window creation, storage IPC, Anthropic proxy, CSP
 │  └─ preload.js         contextBridge: exposes window.storage + electronAPI
-└─ src/
-   ├─ main.jsx           React entry; mounts <App/>
-   ├─ host-bridge.js     patches window.fetch → IPC (must be renderer-side)
-   ├─ App.jsx            shell; renders <PromptBench/>
-   ├─ PromptBench.jsx    YOUR FILE — unmodified
-   └─ styles.css         minimal reset only
+├─ src/
+│  ├─ main.jsx           React entry; mounts <App/>
+│  ├─ host-bridge.js     patches window.fetch → IPC (must be renderer-side)
+│  ├─ App.jsx            shell; renders <PromptBench/>
+│  ├─ PromptBench.jsx    the workbench component — unmodified
+│  └─ styles.css         minimal reset only
+├─ scripts/
+│  ├─ check-main.cjs     asserts the SDK bindings electron/main.js relies on
+│  ├─ check-build.mjs    asserts dist/ asset paths are relative
+│  └─ smoke.cjs          launches the real app and asserts the wiring
+└─ .github/workflows/
+   └─ ci.yml             Windows CI across Node 22 and 24
 ```
 
 ---
@@ -68,27 +74,32 @@ Close and reopen PowerShell afterwards so `node` is on your PATH.
 ```powershell
 git clone https://github.com/rahulranjan-dev-py/Prompt-Bench.git
 cd Prompt-Bench
-git checkout claude/windows-desktop-jsx-app-dapiej
 npm install
 ```
 
-**3. Set your Anthropic API key**
+`npm install` fetches the Electron binary (~150 MB), so give it a minute.
 
-```powershell
-setx ANTHROPIC_API_KEY "sk-ant-your-key-here"
-```
-
-> `setx` writes the variable permanently but only applies it to **newly opened**
-> terminals. Close this PowerShell window and open a new one before step 4, or
-> the app will report "ANTHROPIC_API_KEY is not set".
-
-**4. Launch the app**
+**3. Launch the app**
 
 ```powershell
 npm run dev
 ```
 
-A desktop window opens with DevTools detached alongside it.
+A desktop window opens with DevTools detached alongside it. **No API key is
+needed to get this far** — the app runs, prompts compose, and the library saves
+to disk. Only the control that calls Claude needs one.
+
+**4. Set your Anthropic API key** — only for the Claude call
+
+```powershell
+setx ANTHROPIC_API_KEY "sk-ant-your-key-here"
+```
+
+> This is the step that catches people out. `setx` saves the variable
+> permanently but only applies it to **newly opened** terminals — the window you
+> type it into will not see it. Close it, open a new PowerShell, `cd
+> Prompt-Bench`, and run `npm run dev` again. Skip this entirely and the app
+> still runs; only the Claude call reports "ANTHROPIC_API_KEY is not set".
 
 ---
 
@@ -105,7 +116,7 @@ Check each of these:
 | React mounted | The framework tabs render and switching tabs changes the fields | `PromptBench.jsx` is rendering |
 | Field carry-over | Type into **Role** under RTF, switch to RACE | Component state works |
 | Storage bridge | Save a prompt to the library, fully close the app, reopen it — the prompt is still listed | `window.storage` → disk persistence |
-| API bridge | Compose a prompt and press the run/test control | Main-process proxy + your API key |
+| API bridge | Compose a prompt and press the run/test control (needs step 4) | Main-process proxy + your API key |
 
 If saving shows *"Saving isn't available in this window"*, the preload script
 did not load — check the DevTools console for a preload error.
@@ -127,11 +138,16 @@ npm run dist       # build a Windows .exe installer into release/
 `npm run dist` must be run on Windows — building an NSIS installer needs Windows
 tooling. The installer lands in `release/`.
 
+> **Untested.** Every other command here is exercised by CI on Windows, but
+> `npm run dist` has never been run: the environment this was built in has no
+> Windows toolchain, and CI does not package. It is the one step that may still
+> need fixing.
+
 ---
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every PR into `main`, on **windows-latest** —
+`.github/workflows/ci.yml` runs on every PR into `main` and every push to it, on **windows-latest** —
 the platform this app actually targets, which also exercises the README's own
 install path under PowerShell.
 
