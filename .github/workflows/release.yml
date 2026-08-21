@@ -1,15 +1,22 @@
 name: Release
 
-# Fires on a version tag, e.g. `git tag v0.1.0 && git push origin v0.1.0`.
-# Builds the installer natively on Windows - unlike a local Wine build, this is
-# the real toolchain - and publishes it as a GitHub Release.
+# Two ways in:
+#   - push a tag:  git tag v0.1.0 && git push origin v0.1.0
+#   - Actions tab: "Run workflow", type the tag. gh creates the tag server-side
+#     via --target, so this path needs no local tag push at all.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag to release, e.g. v0.1.0 (must match the version in package.json)'
+        required: true
+        type: string
 
 permissions:
-  # Required to create the release and upload the installer to it. The default
-  # token is read-only, so without this the publish step 403s.
+  # Required to create the tag, the release, and to upload the installer. The
+  # default token is read-only, so without this the publish step 403s.
   contents: write
 
 jobs:
@@ -24,23 +31,61 @@ jobs:
           node-version: '24'
           cache: npm
 
+      # A tag push carries the tag in GITHUB_REF_NAME; a manual dispatch carries
+      # the *branch* there instead, so the two paths have to be reconciled before
+      # anything downstream can trust the value.
+      - name: Resolve the release tag
+        id: rel
+        shell: pwsh
+        env:
+          # Passed through the environment rather than interpolated into the
+          # script body: `${{ inputs.tag }}` inline would be a script-injection
+          # sink, since the value is arbitrary text typed into a form.
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          $tag = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            $env:INPUT_TAG.Trim()
+          } else {
+            $env:GITHUB_REF_NAME
+          }
+          if ($tag -notmatch '^v\d+\.\d+\.\d+') {
+            Write-Error "Tag '$tag' is not of the form v<major>.<minor>.<patch>."
+            exit 1
+          }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "Releasing $tag"
+
       # Publishing a tag whose artifacts carry a different version produces an
       # installer that silently contradicts its own release. Cheaper to fail here.
       - name: Check the tag matches package.json
         shell: pwsh
         run: |
           $pkg = (Get-Content package.json | ConvertFrom-Json).version
-          $tag = $env:GITHUB_REF_NAME -replace '^v', ''
+          $tag = '${{ steps.rel.outputs.tag }}' -replace '^v', ''
           if ($pkg -ne $tag) {
             Write-Error "Tag v$tag does not match package.json version $pkg. Bump one of them."
             exit 1
           }
-          Write-Host "Version $pkg matches tag $env:GITHUB_REF_NAME"
+          Write-Host "Version $pkg matches the tag"
+
+      # gh would fail on a duplicate anyway, but only after a full build. Fail in
+      # seconds instead of after four minutes of packaging.
+      - name: Check the release does not already exist
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          gh release view '${{ steps.rel.outputs.tag }}' --json tagName *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Error "Release ${{ steps.rel.outputs.tag }} already exists. Bump the version or delete it first."
+            exit 1
+          }
+          Write-Host "No existing release for this tag"
 
       - name: Install dependencies
         run: npm ci
 
-      # The same checks CI runs on every PR. A tag should not be able to ship
+      # The same checks CI runs on every PR. A release should not be able to ship
       # something that would have failed review.
       - name: Verify before shipping
         run: |
@@ -80,6 +125,11 @@ jobs:
 
           To build it yourself instead: npm ci, then npm run dist.
           '@
-          gh release create $env:GITHUB_REF_NAME $assets `
-            --title "Prompt-Bench $env:GITHUB_REF_NAME" `
+          # --target creates the tag at this commit when it does not already
+          # exist, which is what makes the manual-dispatch path work without
+          # anyone pushing a tag. On a tag push the tag is already there and
+          # --target is ignored.
+          gh release create '${{ steps.rel.outputs.tag }}' $assets `
+            --target $env:GITHUB_SHA `
+            --title "Prompt-Bench ${{ steps.rel.outputs.tag }}" `
             --notes $notes
