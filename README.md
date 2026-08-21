@@ -47,12 +47,17 @@ Prompt-Bench/
 │  ├─ App.jsx            shell; renders <PromptBench/>
 │  ├─ PromptBench.jsx    the workbench component — unmodified
 │  └─ styles.css         minimal reset only
+├─ build/
+│  ├─ icon.ico           app + installer icon, embedded by electron-builder
+│  └─ icon-master.png    1024px source the .ico is generated from
 ├─ scripts/
 │  ├─ check-main.cjs     asserts the SDK bindings electron/main.js relies on
 │  ├─ check-build.mjs    asserts dist/ asset paths are relative
-│  └─ smoke.cjs          launches the real app and asserts the wiring
+│  ├─ smoke.cjs          launches the real app and asserts the wiring
+│  └─ make-icon.py       regenerates icon.ico (manual; needs Pillow)
 └─ .github/workflows/
-   └─ ci.yml             Windows CI across Node 22 and 24
+   ├─ ci.yml             Windows CI across Node 22 and 24
+   └─ release.yml        builds + publishes a Release on a v* tag
 ```
 
 ---
@@ -135,16 +140,15 @@ npm run start      # production smoke test: build + load dist/ over file://
 npm run dist       # build a Windows .exe installer into release/
 ```
 
-`npm run dist` must be run on Windows — building an NSIS installer needs Windows
-tooling. The installer lands in `release/`.
+`npm run dist` produces `Prompt-Bench Setup <version>.exe` (~79 MB) in
+`release/`, an NSIS installer containing `dist/`, `electron/` and the SDK. It
+needs a Windows toolchain, so run it on Windows — or let the release workflow
+below do it for you.
 
-The build has been run and produces `Prompt-Bench Setup 0.1.0.exe` (~79 MB), an
-NSIS installer containing `dist/`, `electron/` and the SDK. Two caveats:
+> **Unsigned.** No code-signing certificate is configured, so Windows SmartScreen
+> shows "Windows protected your PC" on first run — choose *More info → Run
+> anyway*. To sign it, set `win.certificateFile` in `package.json`.
 
-- **Unsigned.** No code-signing certificate is configured, so Windows SmartScreen
-  will show a "Windows protected your PC" warning on first run. Click *More info
-  → Run anyway*, or configure a certificate via electron-builder's `win.
-  certificateFile`.
 The icon in `build/icon.ico` is embedded in both the executable and the
 installer. It is generated, not hand-drawn — `scripts/make-icon.py` builds all
 seven sizes (16 → 256) from one master, using the palette declared in
@@ -158,9 +162,33 @@ python3 scripts/make-icon.py
 
 It is not part of `npm run dist` — the committed `.ico` is what builds use.
 
-That build was produced on Linux under Wine, which electron-builder supports but
-which is not identical to building natively. Running it on Windows is still the
-authoritative check.
+---
+
+## Releases
+
+Installers are published on the [Releases page](../../releases) — download the
+`.exe` and run it.
+
+Cutting a release is a tag push; `.github/workflows/release.yml` does the rest:
+
+```powershell
+# 1. bump the version - the installer filename and its embedded
+#    metadata both follow package.json
+npm version 0.2.0 --no-git-tag-version
+git commit -am "Release v0.2.0"
+git push
+
+# 2. tag it and push the tag
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The workflow builds on **windows-latest** — natively, with the real toolchain
+rather than under Wine — re-runs the main-process checks, and publishes a Release
+with the installer attached.
+
+It refuses to publish when the tag and the `package.json` version disagree, so a
+`v0.2.0` release can never ship a `0.1.0` installer.
 
 ---
 

@@ -1,0 +1,85 @@
+name: Release
+
+# Fires on a version tag, e.g. `git tag v0.1.0 && git push origin v0.1.0`.
+# Builds the installer natively on Windows - unlike a local Wine build, this is
+# the real toolchain - and publishes it as a GitHub Release.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  # Required to create the release and upload the installer to it. The default
+  # token is read-only, so without this the publish step 403s.
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      # Publishing a tag whose artifacts carry a different version produces an
+      # installer that silently contradicts its own release. Cheaper to fail here.
+      - name: Check the tag matches package.json
+        shell: pwsh
+        run: |
+          $pkg = (Get-Content package.json | ConvertFrom-Json).version
+          $tag = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($pkg -ne $tag) {
+            Write-Error "Tag v$tag does not match package.json version $pkg. Bump one of them."
+            exit 1
+          }
+          Write-Host "Version $pkg matches tag $env:GITHUB_REF_NAME"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The same checks CI runs on every PR. A tag should not be able to ship
+      # something that would have failed review.
+      - name: Verify before shipping
+        run: |
+          node --check electron/main.js
+          node --check electron/preload.js
+          node scripts/check-main.cjs
+
+      - name: Build installer
+        run: npm run dist
+
+      - name: Verify the installer exists
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem release/*.exe -ErrorAction SilentlyContinue
+          if (-not $exe) { Write-Error "npm run dist produced no .exe"; exit 1 }
+          Write-Host "Built: $($exe.Name) ($([math]::Round($exe.Length/1MB,1)) MB)"
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          # gh is preinstalled on GitHub runners, so this needs no third-party
+          # action and no extra supply-chain surface.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $assets = (Get-ChildItem release/*.exe).FullName
+          # A literal here-string (@'...'@) rather than @"..."@: PowerShell treats
+          # the backtick as an escape character inside an expandable here-string,
+          # which would mangle any markdown code spans in these notes.
+          $notes = @'
+          Windows 11 installer, built natively on windows-latest.
+
+          **Install:** download the .exe below and run it.
+
+          > The installer is **unsigned**, so Windows SmartScreen shows
+          > "Windows protected your PC" on first run. Choose **More info** then
+          > **Run anyway**.
+
+          To build it yourself instead: npm ci, then npm run dist.
+          '@
+          gh release create $env:GITHUB_REF_NAME $assets `
+            --title "Prompt-Bench $env:GITHUB_REF_NAME" `
+            --notes $notes
