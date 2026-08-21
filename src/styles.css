@@ -1,0 +1,13 @@
+/* Minimal reset only. PromptBench.jsx injects its own complete stylesheet via
+   its `CSS` constant, so anything opinionated here would fight with it. */
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  /* Matches the --panel colour inside PromptBench's own CSS, so there is no
+     colour flash between the window painting and React mounting. */
+  background: #E4E6E1;
+}

@@ -1,0 +1,60 @@
+{
+  "name": "prompt-bench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Prompt-Bench desktop app for Windows 11 (Electron + React + Vite)",
+  "license": "MIT",
+
+  "//main": "Electron's entry point. Must be CommonJS, which is why there is no \"type\": \"module\" field.",
+  "main": "electron/main.js",
+
+  "scripts": {
+    "//dev": "Runs Vite and Electron together. -k kills both if either dies, so Ctrl+C leaves no orphan node.exe.",
+    "dev": "concurrently -k -n VITE,ELECTRON -c cyan,magenta \"npm:dev:web\" \"npm:dev:electron\"",
+
+    "//dev:web": "Browser-only mode at http://localhost:5173. No Electron, so no API key and no saving.",
+    "dev:web": "vite",
+
+    "//dev:electron": "Electron would show a blank window if it beat Vite to the port, so wait for the port first.",
+    "dev:electron": "wait-on tcp:127.0.0.1:5173 && electron .",
+
+    "build": "vite build",
+
+    "//start": "Production smoke test: build, then load dist/ over file:// with the real CSP. --prod is required because running from source is never \"packaged\".",
+    "start": "npm run build && electron . --prod",
+
+    "//dist": "Produces a Windows .exe installer in release/. Must be run ON Windows.",
+    "dist": "npm run build && electron-builder --win nsis"
+  },
+
+  "//dependencies": "@anthropic-ai/sdk is used by the MAIN process, so it must be a runtime dep - a devDependency would be missing from the packaged .exe.",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8",
+    "vite": "^6.0.7",
+    "wait-on": "^8.0.2"
+  },
+
+  "build": {
+    "appId": "dev.rahulranjan.promptbench",
+    "productName": "Prompt-Bench",
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "electron/**/*", "package.json"],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  }
+}
