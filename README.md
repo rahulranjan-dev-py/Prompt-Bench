@@ -55,7 +55,7 @@ Prompt-Bench/
 
 Run these in **PowerShell**, in order.
 
-**1. Install Node.js** (skip if `node -v` already prints v20 or higher)
+**1. Install Node.js** (skip if `node -v` already prints v22 or higher)
 
 ```powershell
 winget install OpenJS.NodeJS.LTS
@@ -134,6 +134,10 @@ tooling. The installer lands in `release/`.
 `.github/workflows/ci.yml` runs on every PR into `main`, on **windows-latest** —
 the platform this app actually targets, which also exercises the README's own
 install path under PowerShell.
+
+It runs against **Node 22 and 24**: 22 is the supported floor above, and 24 is
+Active LTS, which is what step 1's `winget install OpenJS.NodeJS.LTS` installs
+today. Node 20 is not tested — it reached end-of-life on 2026-03-24.
 
 It covers a gap `vite build` cannot: the build never reads `electron/`, so a
 syntax error or a broken SDK binding in the main process would ship undetected.

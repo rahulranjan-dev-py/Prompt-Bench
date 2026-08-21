@@ -18,14 +18,26 @@ jobs:
     # contributors to run, including npm script quoting under PowerShell.
     runs-on: windows-latest
 
+    strategy:
+      # Report both versions rather than cancelling the sibling on first
+      # failure - "broken on 24, fine on 22" is the useful signal, and
+      # fail-fast would hide half of it.
+      fail-fast: false
+      matrix:
+        # 22 is the floor the README claims; 24 is Active LTS and is what
+        # `winget install OpenJS.NodeJS.LTS` actually installs today, so it
+        # is what someone following the README will really be running.
+        # Node 20 is deliberately absent: it reached end-of-life 2026-03-24.
+        node-version: ['22', '24']
+
+    name: build (node ${{ matrix.node-version }})
+
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
         with:
-          # The minimum the README claims support for. Testing the floor is
-          # more useful than testing the newest release.
-          node-version: '20'
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
       # `npm ci` rather than `npm install`: installs strictly from the
