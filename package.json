@@ -52,6 +52,7 @@
     "directories": { "output": "release" },
     "files": ["dist/**/*", "electron/**/*", "package.json"],
     "win": {
+      "icon": "build/icon.ico",
       "target": [{ "target": "nsis", "arch": ["x64"] }]
     },
     "nsis": {

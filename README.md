@@ -145,8 +145,18 @@ NSIS installer containing `dist/`, `electron/` and the SDK. Two caveats:
   will show a "Windows protected your PC" warning on first run. Click *More info
   → Run anyway*, or configure a certificate via electron-builder's `win.
   certificateFile`.
-- **Default icon.** No application icon is set, so the executable and installer
-  use the generic Electron icon. Add a 256×256 `build/icon.ico` to change it.
+The icon in `build/icon.ico` is embedded in both the executable and the
+installer. It is generated, not hand-drawn — `scripts/make-icon.py` builds all
+seven sizes (16 → 256) from one master, using the palette declared in
+`PromptBench.jsx` itself: `--signal` for the ground, `--panel` and `--live` for
+the three slots. To change it, edit that script and re-run it:
+
+```powershell
+pip install Pillow
+python3 scripts/make-icon.py
+```
+
+It is not part of `npm run dist` — the committed `.ico` is what builds use.
 
 That build was produced on Linux under Wine, which electron-builder supports but
 which is not identical to building natively. Running it on Windows is still the
