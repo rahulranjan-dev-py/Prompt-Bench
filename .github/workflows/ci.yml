@@ -70,3 +70,48 @@ jobs:
       - name: Smoke test the Electron app
         run: npx electron scripts/smoke.cjs
         timeout-minutes: 5
+
+  # Packaging is what release.yml actually ships, and nothing in `build`
+  # exercises it. Both release failures in this repo reached a real run
+  # precisely because `npm run dist` never executed on a PR: one needed the
+  # runner's exit-code semantics, the other needed CI to be set (electron-builder
+  # auto-publishes when it detects CI, which the identical local command cannot
+  # reproduce). This job is where that class of bug gets caught.
+  package:
+    runs-on: windows-latest
+
+    # Deliberately not in the build matrix. release.yml pins Node 24, so
+    # packaging is verified on the version that actually ships rather than on
+    # both, which would double the cost to test a combination nobody releases.
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build installer
+        run: npm run dist
+
+      # release.yml uploads whatever `release/*.exe` matches. If a future
+      # electron-builder left its uninstaller stub behind, that glob would
+      # silently attach a second, bogus asset to a public release. Assert the
+      # assumption here rather than discovering it after publishing.
+      - name: Check the installer is the only .exe
+        shell: pwsh
+        run: |
+          $exes = @(Get-ChildItem release/*.exe)
+          if ($exes.Count -ne 1) {
+            Write-Error "Expected exactly one .exe in release/, found $($exes.Count): $($exes.Name -join ', ')"
+            exit 1
+          }
+          $exe = $exes[0]
+          if ($exe.Length -lt 50MB) {
+            Write-Error "$($exe.Name) is only $([math]::Round($exe.Length/1MB,1)) MB - too small to contain Electron."
+            exit 1
+          }
+          Write-Host "$($exe.Name) - $([math]::Round($exe.Length/1MB,1)) MB"

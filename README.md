@@ -217,6 +217,13 @@ today. Node 20 is not tested — it reached end-of-life on 2026-03-24.
 It covers a gap `vite build` cannot: the build never reads `electron/`, so a
 syntax error or a broken SDK binding in the main process would ship undetected.
 
+A second job packages the app — `npm run dist` on Node 24, the version
+`release.yml` ships from. Packaging behaves differently under CI than it does
+locally (electron-builder auto-publishes when it detects a CI environment), so
+this is the only place that difference surfaces before a real release. It also
+asserts `release/*.exe` matches exactly one file, because the release workflow
+uploads whatever that glob returns.
+
 Run the same checks locally:
 
 ```powershell
