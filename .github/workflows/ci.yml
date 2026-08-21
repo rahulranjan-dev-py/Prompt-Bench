@@ -50,3 +50,11 @@ jobs:
       # produce absolute asset paths that break under file://.
       - name: Check build output
         run: node scripts/check-build.mjs
+
+      # Launches the real app and asserts the wiring the checks above cannot
+      # reach: contextBridge exposure, the fetch shim, IPC round-trips and the
+      # production CSP. Needs no display setup on Windows, and no API key -
+      # the proxy assertion is that a missing key fails correctly.
+      - name: Smoke test the Electron app
+        run: npx electron scripts/smoke.cjs
+        timeout-minutes: 5

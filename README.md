@@ -146,11 +146,27 @@ node --check electron/preload.js
 node scripts/check-main.cjs    # SDK bindings electron/main.js depends on
 npm run build
 node scripts/check-build.mjs   # asset paths must be relative for file://
+npx electron scripts/smoke.cjs # launches the app and asserts the wiring
 ```
 
 `scripts/check-build.mjs` guards the blank-window failure mode specifically: a
 build can succeed and still emit absolute asset paths that resolve to the drive
 root under `file://`, producing an empty window with nothing in the console.
+
+`scripts/smoke.cjs` goes further and launches the real app. It pushes `--prod`
+and requires the real `electron/main.js`, so what it exercises is the shipped
+window, preload, IPC handlers and CSP rather than a re-implementation. It
+asserts that `window.storage` and `window.electronAPI` cross the contextBridge,
+that the `fetch` shim is installed, that the component actually rendered, that
+storage round-trips to disk, and that a missing API key fails with a 401 rather
+than hanging. It needs no API key.
+
+A broken `contextBridge` does not stop the component rendering — it degrades to
+"Saving isn't available in this window" — so this is the only check in the set
+that would catch it.
+
+> Run it after `npm run build`, since `--prod` loads `dist/`. On Linux, prefix
+> it with `xvfb-run -a`; Windows needs no display setup.
 
 ## Notes
 
