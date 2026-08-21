@@ -169,26 +169,38 @@ It is not part of `npm run dist` — the committed `.ico` is what builds use.
 Installers are published on the [Releases page](../../releases) — download the
 `.exe` and run it.
 
-Cutting a release is a tag push; `.github/workflows/release.yml` does the rest:
+`.github/workflows/release.yml` does the work. First bump the version — the
+installer filename and its embedded metadata both follow `package.json`:
 
 ```powershell
-# 1. bump the version - the installer filename and its embedded
-#    metadata both follow package.json
 npm version 0.2.0 --no-git-tag-version
 git commit -am "Release v0.2.0"
 git push
+```
 
-# 2. tag it and push the tag
+Then trigger it, either way:
+
+**From the browser.** Actions → *Release* → **Run workflow**, and type the tag
+(`v0.2.0`). No local git needed at all — the workflow creates the tag itself,
+pointing at the commit it ran from.
+
+**Or by pushing a tag.**
+
+```powershell
 git tag v0.2.0
 git push origin v0.2.0
 ```
 
-The workflow builds on **windows-latest** — natively, with the real toolchain
+Either path builds on **windows-latest** — natively, with the real toolchain
 rather than under Wine — re-runs the main-process checks, and publishes a Release
 with the installer attached.
 
-It refuses to publish when the tag and the `package.json` version disagree, so a
-`v0.2.0` release can never ship a `0.1.0` installer.
+Three things make it refuse rather than ship something wrong:
+
+- the tag must look like `v1.2.3`
+- the tag must match the `package.json` version, so a `v0.2.0` release can never
+  ship a `0.1.0` installer — a mismatch nobody can see once the file is downloaded
+- the release must not already exist, checked before building rather than after
 
 ---
 
