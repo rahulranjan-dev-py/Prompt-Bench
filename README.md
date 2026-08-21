@@ -129,6 +129,29 @@ tooling. The installer lands in `release/`.
 
 ---
 
+## CI
+
+`.github/workflows/ci.yml` runs on every PR into `main`, on **windows-latest** —
+the platform this app actually targets, which also exercises the README's own
+install path under PowerShell.
+
+It covers a gap `vite build` cannot: the build never reads `electron/`, so a
+syntax error or a broken SDK binding in the main process would ship undetected.
+
+Run the same checks locally:
+
+```powershell
+node --check electron/main.js
+node --check electron/preload.js
+node scripts/check-main.cjs    # SDK bindings electron/main.js depends on
+npm run build
+node scripts/check-build.mjs   # asset paths must be relative for file://
+```
+
+`scripts/check-build.mjs` guards the blank-window failure mode specifically: a
+build can succeed and still emit absolute asset paths that resolve to the drive
+root under `file://`, producing an empty window with nothing in the console.
+
 ## Notes
 
 - **Model.** `PromptBench.jsx` requests `claude-sonnet-4-6`. The proxy forwards

@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# A new push supersedes the previous run on the same branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # windows-latest rather than ubuntu because this app targets Windows 11
+    # exclusively. It also exercises the exact install path the README asks
+    # contributors to run, including npm script quoting under PowerShell.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # The minimum the README claims support for. Testing the floor is
+          # more useful than testing the newest release.
+          node-version: '20'
+          cache: npm
+
+      # `npm ci` rather than `npm install`: installs strictly from the
+      # lockfile and fails if package.json and the lockfile disagree.
+      - name: Install dependencies
+        run: npm ci
+
+      # vite build never reads electron/, so a syntax error in the main
+      # process would otherwise ship completely undetected.
+      - name: Syntax-check main process
+        run: |
+          node --check electron/main.js
+          node --check electron/preload.js
+
+      - name: Check main-process SDK contract
+        run: node scripts/check-main.cjs
+
+      - name: Build renderer
+        run: npm run build
+
+      # Guards the blank-window failure mode: a build can succeed and still
+      # produce absolute asset paths that break under file://.
+      - name: Check build output
+        run: node scripts/check-build.mjs
