@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# A new push supersedes the previous run on the same branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # windows-latest rather than ubuntu because this app targets Windows 11
+    # exclusively. It also exercises the exact install path the README asks
+    # contributors to run, including npm script quoting under PowerShell.
+    runs-on: windows-latest
+
+    strategy:
+      # Report both versions rather than cancelling the sibling on first
+      # failure - "broken on 24, fine on 22" is the useful signal, and
+      # fail-fast would hide half of it.
+      fail-fast: false
+      matrix:
+        # 22 is the floor the README claims; 24 is Active LTS and is what
+        # `winget install OpenJS.NodeJS.LTS` actually installs today, so it
+        # is what someone following the README will really be running.
+        # Node 20 is deliberately absent: it reached end-of-life 2026-03-24.
+        node-version: ['22', '24']
+
+    name: build (node ${{ matrix.node-version }})
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      # `npm ci` rather than `npm install`: installs strictly from the
+      # lockfile and fails if package.json and the lockfile disagree.
+      - name: Install dependencies
+        run: npm ci
+
+      # vite build never reads electron/, so a syntax error in the main
+      # process would otherwise ship completely undetected.
+      - name: Syntax-check main process
+        run: |
+          node --check electron/main.js
+          node --check electron/preload.js
+
+      - name: Check main-process SDK contract
+        run: node scripts/check-main.cjs
+
+      - name: Build renderer
+        run: npm run build
+
+      # Guards the blank-window failure mode: a build can succeed and still
+      # produce absolute asset paths that break under file://.
+      - name: Check build output
+        run: node scripts/check-build.mjs
+
+      # Launches the real app and asserts the wiring the checks above cannot
+      # reach: contextBridge exposure, the fetch shim, IPC round-trips and the
+      # production CSP. Needs no display setup on Windows, and no API key -
+      # the proxy assertion is that a missing key fails correctly.
+      - name: Smoke test the Electron app
+        run: npx electron scripts/smoke.cjs
+        timeout-minutes: 5

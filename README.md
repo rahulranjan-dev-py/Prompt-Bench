@@ -55,7 +55,7 @@ Prompt-Bench/
 
 Run these in **PowerShell**, in order.
 
-**1. Install Node.js** (skip if `node -v` already prints v20 or higher)
+**1. Install Node.js** (skip if `node -v` already prints v22 or higher)
 
 ```powershell
 winget install OpenJS.NodeJS.LTS
@@ -128,6 +128,49 @@ npm run dist       # build a Windows .exe installer into release/
 tooling. The installer lands in `release/`.
 
 ---
+
+## CI
+
+`.github/workflows/ci.yml` runs on every PR into `main`, on **windows-latest** —
+the platform this app actually targets, which also exercises the README's own
+install path under PowerShell.
+
+It runs against **Node 22 and 24**: 22 is the supported floor above, and 24 is
+Active LTS, which is what step 1's `winget install OpenJS.NodeJS.LTS` installs
+today. Node 20 is not tested — it reached end-of-life on 2026-03-24.
+
+It covers a gap `vite build` cannot: the build never reads `electron/`, so a
+syntax error or a broken SDK binding in the main process would ship undetected.
+
+Run the same checks locally:
+
+```powershell
+node --check electron/main.js
+node --check electron/preload.js
+node scripts/check-main.cjs    # SDK bindings electron/main.js depends on
+npm run build
+node scripts/check-build.mjs   # asset paths must be relative for file://
+npx electron scripts/smoke.cjs # launches the app and asserts the wiring
+```
+
+`scripts/check-build.mjs` guards the blank-window failure mode specifically: a
+build can succeed and still emit absolute asset paths that resolve to the drive
+root under `file://`, producing an empty window with nothing in the console.
+
+`scripts/smoke.cjs` goes further and launches the real app. It pushes `--prod`
+and requires the real `electron/main.js`, so what it exercises is the shipped
+window, preload, IPC handlers and CSP rather than a re-implementation. It
+asserts that `window.storage` and `window.electronAPI` cross the contextBridge,
+that the `fetch` shim is installed, that the component actually rendered, that
+storage round-trips to disk, and that a missing API key fails with a 401 rather
+than hanging. It needs no API key.
+
+A broken `contextBridge` does not stop the component rendering — it degrades to
+"Saving isn't available in this window" — so this is the only check in the set
+that would catch it.
+
+> Run it after `npm run build`, since `--prod` loads `dist/`. On Linux, prefix
+> it with `xvfb-run -a`; Windows needs no display setup.
 
 ## Notes
 
