@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prompt-Bench</title>
+    <!--
+      No Content-Security-Policy meta tag on purpose. Vite's dev server injects
+      an inline React Fast Refresh script and talks over a websocket, both of
+      which a strict CSP blocks - you would lose hot reload. The production CSP
+      is applied as a response header in electron/main.js instead, so the
+      shipped app is locked down without breaking development.
+    -->
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- type="module" is required: Vite serves ES modules in dev. -->
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
