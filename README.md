@@ -138,10 +138,19 @@ npm run dist       # build a Windows .exe installer into release/
 `npm run dist` must be run on Windows — building an NSIS installer needs Windows
 tooling. The installer lands in `release/`.
 
-> **Untested.** Every other command here is exercised by CI on Windows, but
-> `npm run dist` has never been run: the environment this was built in has no
-> Windows toolchain, and CI does not package. It is the one step that may still
-> need fixing.
+The build has been run and produces `Prompt-Bench Setup 0.1.0.exe` (~79 MB), an
+NSIS installer containing `dist/`, `electron/` and the SDK. Two caveats:
+
+- **Unsigned.** No code-signing certificate is configured, so Windows SmartScreen
+  will show a "Windows protected your PC" warning on first run. Click *More info
+  → Run anyway*, or configure a certificate via electron-builder's `win.
+  certificateFile`.
+- **Default icon.** No application icon is set, so the executable and installer
+  use the generic Electron icon. Add a 256×256 `build/icon.ico` to change it.
+
+That build was produced on Linux under Wine, which electron-builder supports but
+which is not identical to building natively. Running it on Windows is still the
+authoritative check.
 
 ---
 
