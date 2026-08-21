@@ -26,8 +26,8 @@
     "//start": "Production smoke test: build, then load dist/ over file:// with the real CSP. --prod is required because running from source is never \"packaged\".",
     "start": "npm run build && electron . --prod",
 
-    "//dist": "Produces a Windows .exe installer in release/. Must be run ON Windows.",
-    "dist": "npm run build && electron-builder --win nsis"
+    "//dist": "Produces a Windows .exe installer in release/. --publish never is load-bearing: electron-builder auto-publishes when it detects CI, which would fight the release workflow's own gh release create (and fail without GH_TOKEN). One publisher, chosen explicitly.",
+    "dist": "npm run build && electron-builder --win nsis --publish never"
   },
 
   "//dependencies": "@anthropic-ai/sdk is used by the MAIN process, so it must be a runtime dep - a devDependency would be missing from the packaged .exe.",
