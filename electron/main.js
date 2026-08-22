@@ -7,6 +7,8 @@ const fsSync = require('node:fs');
 
 // The SDK ships dual ESM/CJS builds; depending on the version the client class
 // is either the module itself or hangs off .default. This covers both.
+const providers = require('./providers.js');
+
 const anthropicSdk = require('@anthropic-ai/sdk');
 const Anthropic = anthropicSdk.default ?? anthropicSdk;
 
@@ -89,39 +91,63 @@ ipcMain.handle('storage:set', async (_event, key, value, isGlobal) => {
 // %APPDATA%\Prompt-Bench\config.json.
 const configFile = () => path.join(app.getPath('userData'), 'config.json');
 
-// Checked in order. The environment variable wins, so a developer running from
-// a terminal can override. The config file exists because an environment
-// variable is the wrong mechanism for an installed app: a packaged app launched
-// from a shortcut inherits Explorer's cached environment, so `setx` often does
-// not reach it until the user signs out and back in - and there is no terminal
-// in which to notice. Read per request, so editing the file takes effect
-// without restarting the app.
+// The config file exists because an environment variable is the wrong mechanism
+// for an installed app: a packaged app launched from a shortcut inherits
+// Explorer's cached environment, so `setx` often does not reach it until the
+// user signs out and back in - and there is no terminal in which to notice.
+//
 // Synchronous on purpose. The renderer needs to know whether AI is available
-// *before* it paints, so that the features requiring it are never offered when
-// they cannot work - and a synchronous answer is what lets preload hand the
-// page a plain boolean instead of a promise the component would have to model.
-// The file is a few dozen bytes; reading it per call costs nothing.
-function resolveApiKey() {
-  const fromEnv = process.env.ANTHROPIC_API_KEY?.trim();
-  if (fromEnv) return { key: fromEnv, source: 'the ANTHROPIC_API_KEY environment variable' };
-
+// *before* it paints, so the features requiring it are never offered when they
+// cannot work, and a synchronous answer is what lets preload hand the page a
+// plain boolean instead of a promise the component would have to model. The
+// file is a few dozen bytes; reading it per call costs nothing, and means
+// editing it takes effect without restarting.
+function readConfig() {
   try {
     const cfg = JSON.parse(fsSync.readFileSync(configFile(), 'utf8'));
-    const fromFile = typeof cfg.apiKey === 'string' ? cfg.apiKey.trim() : '';
-    if (fromFile) return { key: fromFile, source: configFile() };
+    return cfg && typeof cfg === 'object' ? cfg : {};
   } catch {
     // Absent, unreadable or malformed - indistinguishable from "not configured"
-    // as far as the caller is concerned, and reported as such below.
+    // as far as every caller is concerned, and reported as such below.
+    return {};
   }
+}
 
-  return { key: null, source: null };
+// config.json wins over the environment. That inverts the precedence used
+// before Groq support existed, and deliberately: with the old rule a stale
+// ANTHROPIC_API_KEY left in the environment would silently override an explicit
+// choice of provider in config.json, which is a trap with no upside. An
+// explicit file beats an ambient variable.
+function resolveCredentials() {
+  const cfg = readConfig();
+
+  const provider = providers.PROVIDERS.includes(String(cfg.provider).toLowerCase())
+    ? String(cfg.provider).toLowerCase()
+    : process.env.ANTHROPIC_API_KEY?.trim() ? 'anthropic'
+    : process.env.GROQ_API_KEY?.trim() ? 'groq'
+    : 'anthropic';
+
+  const envName = provider === 'groq' ? 'GROQ_API_KEY' : 'ANTHROPIC_API_KEY';
+  const fromFile = typeof cfg.apiKey === 'string' ? cfg.apiKey.trim() : '';
+  const fromEnv = process.env[envName]?.trim() || '';
+
+  const key = fromFile || fromEnv || null;
+  const source = fromFile ? configFile()
+    : fromEnv ? `the ${envName} environment variable`
+    : null;
+
+  const model = typeof cfg.model === 'string' && cfg.model.trim()
+    ? cfg.model.trim()
+    : providers.DEFAULT_MODEL[provider];
+
+  return { provider, key, source, model, envName };
 }
 
 // Answers "should the AI features exist at all?". Sync so preload can resolve it
 // before the page loads. Evaluated once per window, so adding a key takes effect
 // on the next launch rather than mid-session.
 ipcMain.on('ai:available', (event) => {
-  event.returnValue = !!resolveApiKey().key;
+  event.returnValue = !!resolveCredentials().key;
 });
 
 let client = null;
@@ -169,27 +195,39 @@ function reportCredentialProblem(message) {
   else dialog.showMessageBox(options);
 }
 
-ipcMain.handle('anthropic:messages', async (_event, body) => {
-  const { key, source } = resolveApiKey();
+// Groq speaks the OpenAI chat-completions dialect, so both the request and the
+// response are translated in electron/providers.js. Raw fetch rather than an
+// SDK: the shape is small and stable, and a second SDK would be a dependency
+// carried for one HTTP call.
+async function callGroq(body, key, model) {
+  const res = await fetch(providers.GROQ_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(providers.toGroqRequest(body, model)),
+  });
 
-  if (!key) {
-    reportCredentialProblem('No Anthropic API key found.');
-    return {
-      ok: false,
-      status: 401,
-      error:
-        'No Anthropic API key found. Set ANTHROPIC_API_KEY, or create ' +
-        `${configFile()} containing {"apiKey":"sk-ant-..."}.`,
-    };
+  const json = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    const error = providers.groqErrorMessage(json, res.status);
+    return { ok: false, status: res.status, error };
   }
 
+  // Translated into the Anthropic shape, so PromptBench's own parsing works
+  // untouched and never learns which provider answered.
+  return { ok: true, status: 200, data: providers.fromGroqResponse(json) };
+}
+
+async function callAnthropic(body, key, source) {
   try {
-    // body is forwarded verbatim from the renderer, so the model, max_tokens
-    // and messages chosen inside PromptBench.jsx are what get sent. The SDK
-    // adds x-api-key and anthropic-version, which the original fetch lacked.
+    // body is forwarded verbatim, so the model, max_tokens and messages chosen
+    // inside PromptBench.jsx are what get sent. The SDK adds x-api-key and
+    // anthropic-version, which the component's original fetch lacked.
     const message = await getClient(key).messages.create(body);
-    // Returned as-is: this is the same shape the raw endpoint returns, so
-    // PromptBench's own .content / .stop_reason parsing works untouched.
+    // Returned as-is: already the shape the component parses.
     return { ok: true, status: 200, data: message };
   } catch (err) {
     // Typed SDK errors, most specific first.
@@ -204,9 +242,46 @@ ipcMain.handle('anthropic:messages', async (_event, body) => {
     } else if (err instanceof Anthropic.BadRequestError) {
       reason = `Bad request: ${err.message}`;
     }
-    console.error('[Prompt-Bench] Anthropic request failed:', reason);
     return { ok: false, status: err?.status ?? 500, error: reason };
   }
+}
+
+// Channel name kept as 'anthropic:messages' rather than renamed: preload and
+// src/host-bridge.js both reference it, and a rename buys nothing but a chance
+// to break the bridge. What travels over it is provider-neutral either way.
+ipcMain.handle('anthropic:messages', async (_event, body) => {
+  const { provider, key, source, model, envName } = resolveCredentials();
+
+  if (!key) {
+    reportCredentialProblem(`No ${provider} API key found.`);
+    return {
+      ok: false,
+      status: 401,
+      error:
+        `No ${provider} API key found. Set ${envName}, or create ${configFile()} ` +
+        `containing {"provider":"${provider}","apiKey":"..."}.`,
+    };
+  }
+
+  let result;
+  try {
+    result = provider === 'groq'
+      ? await callGroq(body, key, model)
+      : await callAnthropic(body, key, source);
+  } catch (err) {
+    // Network-level failure, which the SDK path handles internally but a bare
+    // fetch does not - an unhandled throw here would reject the IPC call and
+    // surface as an opaque renderer error rather than a readable message.
+    result = { ok: false, status: 502, error: `Request failed: ${err?.message ?? err}` };
+  }
+
+  if (!result.ok) {
+    // 401 from any provider is a credential problem, and the dialog is the only
+    // place an installed user would ever see it.
+    if (result.status === 401) reportCredentialProblem(`${result.error} (key loaded from ${source})`);
+    console.error(`[Prompt-Bench] ${provider} request failed:`, result.error);
+  }
+  return result;
 });
 
 /* ------------------------------------------------------------------ */

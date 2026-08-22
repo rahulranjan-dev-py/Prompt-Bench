@@ -55,6 +55,12 @@ jobs:
       - name: Check main-process SDK contract
         run: node scripts/check-main.cjs
 
+      # The Groq translation cannot be tested against the live API, so the
+      # fixture tests are the only thing standing between a broken translation
+      # and a user discovering it.
+      - name: Check provider translation
+        run: node scripts/check-providers.cjs
+
       - name: Build renderer
         run: npm run build
 

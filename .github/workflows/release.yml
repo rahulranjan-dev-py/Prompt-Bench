@@ -97,7 +97,9 @@ jobs:
         run: |
           node --check electron/main.js
           node --check electron/preload.js
+          node --check electron/providers.js
           node scripts/check-main.cjs
+          node scripts/check-providers.cjs
 
       # Signing is optional. With no credentials configured this produces exactly
       # the unsigned build it always did, so the pipeline keeps working until a
