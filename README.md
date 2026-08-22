@@ -76,7 +76,8 @@ Prompt-Bench/
 │  ├─ check-main.cjs     asserts the SDK bindings electron/main.js relies on
 │  ├─ check-build.mjs    asserts dist/ asset paths are relative
 │  ├─ smoke.cjs          launches the real app and asserts the wiring
-│  └─ make-icon.py       regenerates icon.ico (manual; needs Pillow)
+│  ├─ make-icon.py       regenerates icon.ico (manual; needs Pillow)
+│  └─ zip-installer.mjs  wraps the installer in a .zip during `npm run dist`
 └─ .github/workflows/
    ├─ ci.yml             Windows CI across Node 22 and 24
    └─ release.yml        builds + publishes a Release on a v* tag
@@ -194,10 +195,20 @@ npm run start      # production smoke test: build + load dist/ over file://
 npm run dist       # build a Windows .exe installer into release/
 ```
 
-`npm run dist` produces `Prompt-Bench Setup <version>.exe` (~79 MB) in
-`release/`, an NSIS installer containing `dist/`, `electron/` and the SDK. It
-needs a Windows toolchain, so run it on Windows — or let the release workflow
-below do it for you.
+`npm run dist` produces three things in `release/`, and needs a Windows
+toolchain — run it on Windows, or let the release workflow below do it for you:
+
+| File | What it is |
+|---|---|
+| `Prompt-Bench Setup <version>.exe` | the NSIS installer (~79 MB) |
+| `Prompt-Bench-<version>-Setup.zip` | that installer, zipped |
+| `Prompt-Bench-<version>-win.zip` | the portable app (~108 MB) |
+
+**Only the two zips are published.** A bare `.exe` download is blocked or
+heavily warned about by browsers and Windows; an archive is not. `scripts/zip-installer.mjs`
+does the wrapping, and runs as part of `npm run dist` rather than from the
+release workflow — a step that only ever executes during a real release is a
+step nobody finds out is broken until a release is in flight.
 
 > **Unsigned.** No code-signing certificate is configured, so Windows SmartScreen
 > shows "Windows protected your PC" on first run — choose *More info → Run
@@ -220,8 +231,15 @@ It is not part of `npm run dist` — the committed `.ico` is what builds use.
 
 ## Releases
 
-Installers are published on the [Releases page](../../releases) — download the
-`.exe` and run it.
+Two downloads on the [Releases page](../../releases), both archives:
+
+- **`...-Setup.zip`** — unzip, run Setup. Installs with a Start menu entry,
+  desktop shortcut and uninstaller.
+- **`...-win.zip`** — unzip anywhere and run `Prompt-Bench.exe`. Nothing is
+  installed; runs from a USB stick.
+
+Your saved library lives in `%APPDATA%\Prompt-Bench` either way, so the two
+share state if you use both.
 
 `.github/workflows/release.yml` does the work. First bump the version — the
 installer filename and its embedded metadata both follow `package.json`:

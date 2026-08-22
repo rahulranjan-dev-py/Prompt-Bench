@@ -101,7 +101,7 @@ jobs:
       # electron-builder left its uninstaller stub behind, that glob would
       # silently attach a second, bogus asset to a public release. Assert the
       # assumption here rather than discovering it after publishing.
-      - name: Check the installer is the only .exe
+      - name: Check the release artifacts
         shell: pwsh
         run: |
           $exes = @(Get-ChildItem release/*.exe)
@@ -114,4 +114,17 @@ jobs:
             Write-Error "$($exe.Name) is only $([math]::Round($exe.Length/1MB,1)) MB - too small to contain Electron."
             exit 1
           }
-          Write-Host "$($exe.Name) - $([math]::Round($exe.Length/1MB,1)) MB"
+          Write-Host "Installer : $($exe.Name) - $([math]::Round($exe.Length/1MB,1)) MB"
+
+          # release.yml publishes release/*.zip and nothing else, so both archives
+          # existing is the thing that actually has to hold. Checking it here means
+          # a break shows up on the PR rather than mid-release.
+          $zips = @(Get-ChildItem release/*.zip)
+          if ($zips.Count -ne 2) {
+            Write-Error "Expected 2 zips in release/, found $($zips.Count): $($zips.Name -join ', ')"
+            exit 1
+          }
+          if (-not ($zips.Name -match 'Setup\.zip$')) { Write-Error 'No ...-Setup.zip produced.'; exit 1 }
+          if (-not ($zips.Name -match 'win\.zip$'))   { Write-Error 'No ...-win.zip produced.';   exit 1 }
+          foreach ($z in $zips) { Write-Host "Asset     : $($z.Name) - $([math]::Round($z.Length/1MB,1)) MB" }
+          exit 0
