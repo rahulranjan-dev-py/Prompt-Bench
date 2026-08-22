@@ -141,12 +141,22 @@ jobs:
           "signed=$configured" >> $env:GITHUB_OUTPUT
           exit 0
 
-      - name: Verify the installer exists
+      - name: Verify the artifacts exist
         shell: pwsh
         run: |
           $exe = Get-ChildItem release/*.exe -ErrorAction SilentlyContinue
           if (-not $exe) { Write-Error "npm run dist produced no .exe"; exit 1 }
-          Write-Host "Built: $($exe.Name) ($([math]::Round($exe.Length/1MB,1)) MB)"
+          Write-Host "Installer : $($exe.Name) ($([math]::Round($exe.Length/1MB,1)) MB)"
+
+          # The zips are what actually get published, so a missing one must fail
+          # here rather than produce a release with half its assets.
+          $zips = @(Get-ChildItem release/*.zip)
+          if ($zips.Count -ne 2) {
+            Write-Error "Expected 2 zips in release/, found $($zips.Count): $($zips.Name -join ', ')"
+            exit 1
+          }
+          foreach ($z in $zips) { Write-Host "Asset     : $($z.Name) ($([math]::Round($z.Length/1MB,1)) MB)" }
+          exit 0
 
       # Publishing something advertised as signed that is not signed is worse
       # than publishing an honest unsigned build, so this fails the release when
@@ -173,7 +183,9 @@ jobs:
           # action and no extra supply-chain surface.
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          $assets = (Get-ChildItem release/*.exe).FullName
+          # Archives only. A bare .exe download is blocked or heavily warned about
+          # by browsers and Windows; a .zip is not.
+          $assets = (Get-ChildItem release/*.zip).FullName
           # A literal here-string (@'...'@) rather than @"..."@: PowerShell treats
           # the backtick as an escape character inside an expandable here-string,
           # which would mangle any markdown code spans in these notes.
@@ -181,24 +193,41 @@ jobs:
           # carry markdown, and PowerShell treats the backtick as an escape
           # character inside an expandable here-string.
           $unsignedNotes = @'
-          Windows 11 installer, built natively on windows-latest.
+          Windows 11. Two downloads - pick one:
 
-          **Install:** download the .exe below and run it.
+          **...-Setup.zip** - the installer. Unzip, run Setup, and it installs with a
+          Start menu entry, a desktop shortcut and an uninstaller.
 
-          > The installer is **unsigned**, so Windows SmartScreen shows
-          > "Windows protected your PC" on first run. Choose **More info** then
-          > **Run anyway**.
+          **...-win.zip** - portable. Unzip anywhere and run Prompt-Bench.exe. Nothing
+          is installed: no shortcuts, no uninstaller, and it runs from a USB stick.
+
+          Both are archives rather than bare .exe files, because browsers and Windows
+          treat a downloaded executable far more suspiciously than an archive.
+
+          Your saved prompt library lives in %APPDATA%\Prompt-Bench either way.
+
+          > The app is **unsigned**, so Windows SmartScreen shows "Windows protected
+          > your PC" on first run. Choose **More info** then **Run anyway**.
 
           To build it yourself instead: npm ci, then npm run dist.
           '@
 
           $signedNotes = @'
-          Windows 11 installer, built natively on windows-latest and code signed.
+          Windows 11. Two downloads - pick one:
 
-          **Install:** download the .exe below and run it.
+          **...-Setup.zip** - the installer. Unzip, run Setup, and it installs with a
+          Start menu entry, a desktop shortcut and an uninstaller.
 
-          > SmartScreen builds reputation per publisher from download volume, so
-          > a warning may still appear on early downloads even though the
+          **...-win.zip** - portable. Unzip anywhere and run Prompt-Bench.exe. Nothing
+          is installed: no shortcuts, no uninstaller, and it runs from a USB stick.
+
+          Both are archives rather than bare .exe files, because browsers and Windows
+          treat a downloaded executable far more suspiciously than an archive.
+
+          Your saved prompt library lives in %APPDATA%\Prompt-Bench either way.
+
+          > Code signed. SmartScreen builds reputation per publisher from download
+          > volume, so a warning may still appear on early downloads even though the
           > signature is valid. It fades as downloads accumulate.
 
           To build it yourself instead: npm ci, then npm run dist.

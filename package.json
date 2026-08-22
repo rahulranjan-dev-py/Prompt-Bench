@@ -1,6 +1,6 @@
 {
   "name": "prompt-bench",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Prompt-Bench desktop app for Windows 11 (Electron + React + Vite)",
   "license": "MIT",
@@ -27,9 +27,10 @@
     "start": "npm run build && electron . --prod",
 
     "//dist": "Produces a Windows .exe installer in release/. --publish never is load-bearing: electron-builder auto-publishes when it detects CI, which would fight the release workflow's own gh release create (and fail without GH_TOKEN). One publisher, chosen explicitly.",
-    "dist": "npm run build && electron-builder --win nsis --publish never"
+    "dist": "npm run build && electron-builder --win --publish never && node scripts/zip-installer.mjs"
   },
 
+  "//targets": "build.win.target: nsis is the installer, zip is the portable build (unzip and run, nothing installed). scripts/zip-installer.mjs then wraps the installer, so every published asset is an archive rather than a bare .exe. Note: comments cannot live inside \"build\" - electron-builder schema-validates it and rejects unknown keys.",
   "//dependencies": "@anthropic-ai/sdk is used by the MAIN process, so it must be a runtime dep - a devDependency would be missing from the packaged .exe.",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
@@ -38,6 +39,7 @@
   },
 
   "devDependencies": {
+    "7zip-bin": "^5.2.0",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
     "electron": "^33.3.1",
@@ -53,7 +55,10 @@
     "files": ["dist/**/*", "electron/**/*", "package.json"],
     "win": {
       "icon": "build/icon.ico",
-      "target": [{ "target": "nsis", "arch": ["x64"] }]
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "zip", "arch": ["x64"] }
+      ]
     },
     "nsis": {
       "oneClick": false,
