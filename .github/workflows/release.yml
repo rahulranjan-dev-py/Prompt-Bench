@@ -99,8 +99,47 @@ jobs:
           node --check electron/preload.js
           node scripts/check-main.cjs
 
+      # Signing is optional. With no credentials configured this produces exactly
+      # the unsigned build it always did, so the pipeline keeps working until a
+      # certificate actually exists.
+      #
+      # Azure Artifact Signing (formerly Trusted Signing) rather than a .pfx:
+      # since June 2023 the CA/Browser Forum requires OV private keys to live on
+      # a hardware token or HSM, so the old "put a .pfx in a secret" approach is
+      # not available for a newly issued certificate. A cloud signing service is
+      # the only practical CI route.
       - name: Build installer
-        run: npm run dist
+        id: build
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          SIGN_ENDPOINT: ${{ secrets.AZURE_SIGN_ENDPOINT }}
+          SIGN_ACCOUNT: ${{ secrets.AZURE_SIGN_ACCOUNT }}
+          SIGN_PROFILE: ${{ secrets.AZURE_SIGN_PROFILE }}
+        run: |
+          $configured = [bool]($env:AZURE_TENANT_ID -and $env:AZURE_CLIENT_ID -and
+                               $env:AZURE_CLIENT_SECRET -and $env:SIGN_ENDPOINT -and
+                               $env:SIGN_ACCOUNT -and $env:SIGN_PROFILE)
+
+          if ($configured) {
+            Write-Host 'Signing credentials present - producing a SIGNED build.'
+            # Passed as CLI overrides rather than living in package.json:
+            # azureSignOptions present without credentials makes electron-builder
+            # fail, which would break every local and CI build.
+            npm run dist -- `
+              --config.win.azureSignOptions.endpoint=$env:SIGN_ENDPOINT `
+              --config.win.azureSignOptions.codeSigningAccountName=$env:SIGN_ACCOUNT `
+              --config.win.azureSignOptions.certificateProfileName=$env:SIGN_PROFILE
+          } else {
+            Write-Host 'No signing credentials configured - producing an UNSIGNED build.'
+            npm run dist
+          }
+
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "signed=$configured" >> $env:GITHUB_OUTPUT
+          exit 0
 
       - name: Verify the installer exists
         shell: pwsh
@@ -108,6 +147,24 @@ jobs:
           $exe = Get-ChildItem release/*.exe -ErrorAction SilentlyContinue
           if (-not $exe) { Write-Error "npm run dist produced no .exe"; exit 1 }
           Write-Host "Built: $($exe.Name) ($([math]::Round($exe.Length/1MB,1)) MB)"
+
+      # Publishing something advertised as signed that is not signed is worse
+      # than publishing an honest unsigned build, so this fails the release when
+      # signing was configured but did not take.
+      - name: Report signature status
+        shell: pwsh
+        run: |
+          $exe = @(Get-ChildItem release/*.exe)[0]
+          $sig = Get-AuthenticodeSignature $exe.FullName
+          Write-Host "Installer : $($exe.Name)"
+          Write-Host "Status    : $($sig.Status)"
+          if ($sig.SignerCertificate) { Write-Host "Signer    : $($sig.SignerCertificate.Subject)" }
+
+          if ('${{ steps.build.outputs.signed }}' -eq 'True' -and $sig.Status -ne 'Valid') {
+            Write-Error "Signing was configured but the installer is not validly signed (status: $($sig.Status))."
+            exit 1
+          }
+          exit 0
 
       - name: Publish release
         shell: pwsh
@@ -120,7 +177,10 @@ jobs:
           # A literal here-string (@'...'@) rather than @"..."@: PowerShell treats
           # the backtick as an escape character inside an expandable here-string,
           # which would mangle any markdown code spans in these notes.
-          $notes = @'
+          # Two literal here-strings rather than one interpolated: the notes
+          # carry markdown, and PowerShell treats the backtick as an escape
+          # character inside an expandable here-string.
+          $unsignedNotes = @'
           Windows 11 installer, built natively on windows-latest.
 
           **Install:** download the .exe below and run it.
@@ -131,6 +191,20 @@ jobs:
 
           To build it yourself instead: npm ci, then npm run dist.
           '@
+
+          $signedNotes = @'
+          Windows 11 installer, built natively on windows-latest and code signed.
+
+          **Install:** download the .exe below and run it.
+
+          > SmartScreen builds reputation per publisher from download volume, so
+          > a warning may still appear on early downloads even though the
+          > signature is valid. It fades as downloads accumulate.
+
+          To build it yourself instead: npm ci, then npm run dist.
+          '@
+
+          $notes = if ('${{ steps.build.outputs.signed }}' -eq 'True') { $signedNotes } else { $unsignedNotes }
           # --target creates the tag at this commit when it does not already
           # exist, which is what makes the manual-dispatch path work without
           # anyone pushing a tag. On a tag push the tag is already there and

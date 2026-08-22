@@ -258,6 +258,64 @@ Three things make it refuse rather than ship something wrong:
 
 ---
 
+## Code signing
+
+Releases are **unsigned by default**, and the release workflow signs only when
+credentials are configured — with none set it produces exactly the unsigned
+build it always has, so nothing breaks while you decide.
+
+### What to buy, and what not to
+
+**Buy [Azure Artifact Signing](https://azure.microsoft.com/en-us/products/artifact-signing)**
+(formerly Trusted Signing) — $9.99/month for up to 5,000 signatures. It is
+cloud-based, so it works from CI with no hardware attached to anything.
+
+**Do not buy a traditional OV certificate expecting to use it here.** Since June
+2023 the CA/Browser Forum requires OV private keys to live on a hardware token
+or HSM, so the old "put a `.pfx` in a secret" approach is not available for a
+newly issued certificate — the key physically cannot leave the token.
+
+**Do not pay extra for EV.** Since March 2024 EV no longer grants instant
+SmartScreen trust; EV and OV now build reputation the same way, through download
+volume. The premium buys nothing you need.
+
+Note that signing does **not** remove the SmartScreen warning immediately.
+Reputation accrues per publisher as downloads accumulate — signing is what lets
+that reputation start building at all.
+
+### Configuring it
+
+Set six repository secrets (*Settings → Secrets and variables → Actions*). Three
+are genuinely secret; the rest identify your signing account:
+
+| Secret | What it is |
+|---|---|
+| `AZURE_TENANT_ID` | Entra ID tenant of the service principal |
+| `AZURE_CLIENT_ID` | The service principal |
+| `AZURE_CLIENT_SECRET` | Its secret |
+| `AZURE_SIGN_ENDPOINT` | e.g. `https://eus.codesigning.azure.net` — must match your account's region |
+| `AZURE_SIGN_ACCOUNT` | Code signing account name |
+| `AZURE_SIGN_PROFILE` | Certificate profile name |
+
+The next release then signs automatically, reports the signature status in the
+log, and gets release notes that no longer describe it as unsigned. If signing
+was configured but did not take, the release **fails** rather than publishing
+something advertised as signed that is not.
+
+Setup requires business verification with Microsoft, which takes time — start it
+before you need it.
+
+### Two caveats
+
+- electron-builder marks Azure signing **beta** in the version pinned here.
+- The signed path **cannot be exercised from a Linux machine.** electron-builder
+  shells out to Windows signing tools and, on a Linux host, looks for a Parallels
+  VM (`spawn prlctl ENOENT`). The config parses and the Azure path is entered —
+  that much is verified — but producing a signed artifact requires a Windows
+  host, which is what the release workflow uses.
+
+---
+
 ## CI
 
 `.github/workflows/ci.yml` runs on every PR into `main` and every push to it, on **windows-latest** —
