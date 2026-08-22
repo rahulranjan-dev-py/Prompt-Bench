@@ -18,9 +18,8 @@ provides two things a plain browser does not:
 | `window.storage.get/set` | host storage API | `electron/preload.js` → IPC → `%APPDATA%\Prompt-Bench\storage.json` |
 | `fetch('https://api.anthropic.com/v1/messages')` with **no auth header** | credentials injected by the host | `src/host-bridge.js` → IPC → `@anthropic-ai/sdk` in the main process |
 
-The Electron shell **emulates that host environment**, which is why
-`src/PromptBench.jsx` is byte-for-byte identical to the original file — it has
-zero modifications. Two consequences worth knowing:
+The Electron shell **emulates that host environment**, so the component needed
+almost nothing changed. Three consequences worth knowing:
 
 - **Your API key never enters the renderer.** The request is made from the main
   process, so the key cannot be extracted from the packaged app or read in
@@ -28,6 +27,29 @@ zero modifications. Two consequences worth knowing:
   outbound network access at all.
 - **Your prompt library persists.** In a plain browser `window.storage` is
   undefined and the component shows "Saving isn't available in this window".
+- **The app works without an API key.** See below.
+
+### The app is standalone; AI is optional
+
+Only two features need the Anthropic API — *"Turn this into a prompt"* and
+*"Sharpen with AI"*. Everything else is local computation: the eleven
+structures, filling slots, text carrying over between structures, assembling
+the prompt, the XML mode, copying, and the saved library. The app's own tagline
+— *pick a structure, fill the slots, copy the prompt* — describes a loop that
+never touches the network.
+
+So the two AI features are **shown only when a key is configured**. With no key
+the app installs and works with zero setup, rather than offering buttons that
+fail when pressed. `window.hasAI` carries that decision, resolved by the shell
+before the page paints and mirroring the `!!window.storage` check the component
+already used to decide whether saving exists.
+
+### How far it diverges from the Artifacts original
+
+Four small edits, all of the same kind: one `hasAI` constant, and three
+`{hasAI && (…)}` wrappers around the AI button, the mode switcher, and one line
+of help text. Nothing else was touched, so re-exporting the component from
+Artifacts and diffing it stays a small, readable job.
 
 ---
 
@@ -45,7 +67,7 @@ Prompt-Bench/
 │  ├─ main.jsx           React entry; mounts <App/>
 │  ├─ host-bridge.js     patches window.fetch → IPC (must be renderer-side)
 │  ├─ App.jsx            shell; renders <PromptBench/>
-│  ├─ PromptBench.jsx    the workbench component — unmodified
+│  ├─ PromptBench.jsx    the workbench component (4 small gating edits)
 │  └─ styles.css         minimal reset only
 ├─ build/
 │  ├─ icon.ico           app + installer icon, embedded by electron-builder

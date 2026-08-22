@@ -3,6 +3,7 @@
 const { app, BrowserWindow, dialog, ipcMain, session, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
 
 // The SDK ships dual ESM/CJS builds; depending on the version the client class
 // is either the module itself or hangs off .default. This covers both.
@@ -95,12 +96,17 @@ const configFile = () => path.join(app.getPath('userData'), 'config.json');
 // not reach it until the user signs out and back in - and there is no terminal
 // in which to notice. Read per request, so editing the file takes effect
 // without restarting the app.
-async function readApiKey() {
+// Synchronous on purpose. The renderer needs to know whether AI is available
+// *before* it paints, so that the features requiring it are never offered when
+// they cannot work - and a synchronous answer is what lets preload hand the
+// page a plain boolean instead of a promise the component would have to model.
+// The file is a few dozen bytes; reading it per call costs nothing.
+function resolveApiKey() {
   const fromEnv = process.env.ANTHROPIC_API_KEY?.trim();
   if (fromEnv) return { key: fromEnv, source: 'the ANTHROPIC_API_KEY environment variable' };
 
   try {
-    const cfg = JSON.parse(await fs.readFile(configFile(), 'utf8'));
+    const cfg = JSON.parse(fsSync.readFileSync(configFile(), 'utf8'));
     const fromFile = typeof cfg.apiKey === 'string' ? cfg.apiKey.trim() : '';
     if (fromFile) return { key: fromFile, source: configFile() };
   } catch {
@@ -110,6 +116,13 @@ async function readApiKey() {
 
   return { key: null, source: null };
 }
+
+// Answers "should the AI features exist at all?". Sync so preload can resolve it
+// before the page loads. Evaluated once per window, so adding a key takes effect
+// on the next launch rather than mid-session.
+ipcMain.on('ai:available', (event) => {
+  event.returnValue = !!resolveApiKey().key;
+});
 
 let client = null;
 let clientKey = null;
@@ -157,7 +170,7 @@ function reportCredentialProblem(message) {
 }
 
 ipcMain.handle('anthropic:messages', async (_event, body) => {
-  const { key, source } = await readApiKey();
+  const { key, source } = resolveApiKey();
 
   if (!key) {
     reportCredentialProblem('No Anthropic API key found.');
