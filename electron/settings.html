@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Prompt-Bench Settings</title>
+    <!-- Palette lifted from the CSS block in src/PromptBench.jsx so this window
+         belongs to the app rather than looking bolted on. Styles are inline
+         (the production CSP allows 'unsafe-inline' for styles) but the script
+         is a separate file, because script-src is 'self' with no exception. -->
+    <style>
+      :root {
+        --panel:#E4E6E1; --ink:#14171A; --slot:#FAFAF7; --line:#CBCFC6;
+        --mute:#79806F; --signal:#1B36D8; --live:#C9F24E;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; padding: 22px 24px;
+        background: var(--panel); color: var(--ink);
+        font-family: 'Archivo', 'Segoe UI', system-ui, sans-serif;
+        font-size: 14px;
+      }
+      h1 { font-size: 17px; margin: 0 0 2px; }
+      .sub { color: var(--mute); font-size: 12.5px; margin: 0 0 18px; }
+      label { display: block; font-size: 11px; letter-spacing: .09em;
+              text-transform: uppercase; color: var(--mute); margin: 14px 0 5px; }
+      select, input[type=password], input[type=text] {
+        width: 100%; padding: 9px 10px; font: inherit;
+        background: var(--slot); color: var(--ink);
+        border: 1px solid var(--line); border-radius: 6px;
+      }
+      select:focus, input:focus { outline: 2px solid var(--signal); outline-offset: -1px; }
+      .hint { font-size: 12px; color: var(--mute); margin-top: 5px; line-height: 1.45; }
+      .hint a { color: var(--signal); }
+      .row { display: flex; gap: 9px; margin-top: 22px; }
+      button {
+        font: inherit; font-weight: 600; padding: 9px 16px;
+        border: 1px solid var(--line); border-radius: 6px;
+        background: var(--slot); color: var(--ink); cursor: pointer;
+      }
+      button.primary { background: var(--live); border-color: var(--live); }
+      button:disabled { opacity: .5; cursor: default; }
+      .path {
+        margin-top: 20px; padding: 9px 10px; border-radius: 6px;
+        background: var(--slot); border: 1px solid var(--line);
+        font-family: 'JetBrains Mono', Consolas, monospace;
+        font-size: 11.5px; color: var(--mute); word-break: break-all;
+      }
+      #status { margin-top: 12px; font-size: 12.5px; min-height: 17px; }
+      #status.err { color: #B3261E; }
+      #status.ok  { color: #1B6B2E; }
+    </style>
+  </head>
+  <body>
+    <h1>API key</h1>
+    <p class="sub">Only the two AI features need this. Everything else works without it.</p>
+
+    <label for="provider">Provider</label>
+    <select id="provider">
+      <option value="anthropic">Anthropic — paid, best quality</option>
+      <option value="groq">Groq — free tier, does not train on your inputs</option>
+    </select>
+    <div class="hint" id="providerHint"></div>
+
+    <label for="apiKey">API key</label>
+    <input id="apiKey" type="password" spellcheck="false" autocomplete="off" placeholder="paste your key" />
+
+    <label for="model">Model <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
+    <input id="model" type="text" spellcheck="false" autocomplete="off" />
+    <div class="hint" id="modelHint"></div>
+
+    <div class="row">
+      <button class="primary" id="save">Save and reload</button>
+      <button id="clear">Remove key</button>
+      <button id="cancel">Cancel</button>
+    </div>
+
+    <div id="status"></div>
+    <div class="path" id="path"></div>
+
+    <script src="settings.js"></script>
+  </body>
+</html>
