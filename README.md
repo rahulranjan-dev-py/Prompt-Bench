@@ -104,7 +104,24 @@ setx ANTHROPIC_API_KEY "sk-ant-your-key-here"
 > permanently but only applies it to **newly opened** terminals — the window you
 > type it into will not see it. Close it, open a new PowerShell, `cd
 > Prompt-Bench`, and run `npm run dev` again. Skip this entirely and the app
-> still runs; only the Claude call reports "ANTHROPIC_API_KEY is not set".
+> still runs; only the Claude call fails.
+
+**Or use a config file instead** — which is the better option for the installed
+app. Create `%APPDATA%\Prompt-Bench\config.json`:
+
+```json
+{ "apiKey": "sk-ant-your-key-here" }
+```
+
+An environment variable is the wrong mechanism for an app launched from a
+shortcut: it inherits Explorer's *cached* environment, so `setx` frequently
+doesn't reach it until you sign out and back in — and there's no terminal in
+which to notice. The config file has no such problem, and is re-read on every
+request, so editing it takes effect without restarting.
+
+`ANTHROPIC_API_KEY` wins if both are set. Keys come from
+[console.anthropic.com](https://console.anthropic.com) — API access is billed
+separately from a Claude subscription, so Pro or Max does not cover it.
 
 ---
 
@@ -126,9 +143,24 @@ Check each of these:
 If saving shows *"Saving isn't available in this window"*, the preload script
 did not load — check the DevTools console for a preload error.
 
-If the API call fails, look at the **PowerShell window**, not DevTools: the main
-process logs the precise reason there (`[Prompt-Bench] Anthropic request
-failed: …`), including whether the key was rejected or you were rate limited.
+If the API call fails, the component shows one generic message — *"That didn't
+come back cleanly"* — for every cause: no key, a rejected key, a rate limit, or
+a genuinely unparseable reply. The real reason is reported in three places:
+
+- a **dialog**, for credential problems specifically, since an installed app has
+  no console and this is a setup error worth interrupting for;
+- the **DevTools console** (`Ctrl+Shift+I`) — `[Prompt-Bench] Claude request
+  failed (401): …`;
+- the **terminal**, when running from source.
+
+To interrogate it directly, run this in the DevTools console:
+
+```js
+await window.electronAPI.sendMessages({model:"claude-sonnet-4-6",max_tokens:16,
+  messages:[{role:"user",content:"hi"}]})
+```
+
+That bypasses the component entirely and returns the unfiltered result.
 
 ---
 

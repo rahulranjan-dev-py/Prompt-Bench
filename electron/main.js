@@ -1,6 +1,6 @@
 // Electron main process. CommonJS on purpose: package.json has no
 // "type": "module", so .js here is CJS, which is what Electron's own docs use.
-const { app, BrowserWindow, ipcMain, session, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, session, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 
@@ -84,34 +84,113 @@ ipcMain.handle('storage:set', async (_event, key, value, isGlobal) => {
 /*       preflight and the renderer's CSP stays connect-src 'self'.     */
 /* ------------------------------------------------------------------ */
 
+// Where an installed app is told to put its key. On Windows this resolves to
+// %APPDATA%\Prompt-Bench\config.json.
+const configFile = () => path.join(app.getPath('userData'), 'config.json');
+
+// Checked in order. The environment variable wins, so a developer running from
+// a terminal can override. The config file exists because an environment
+// variable is the wrong mechanism for an installed app: a packaged app launched
+// from a shortcut inherits Explorer's cached environment, so `setx` often does
+// not reach it until the user signs out and back in - and there is no terminal
+// in which to notice. Read per request, so editing the file takes effect
+// without restarting the app.
+async function readApiKey() {
+  const fromEnv = process.env.ANTHROPIC_API_KEY?.trim();
+  if (fromEnv) return { key: fromEnv, source: 'the ANTHROPIC_API_KEY environment variable' };
+
+  try {
+    const cfg = JSON.parse(await fs.readFile(configFile(), 'utf8'));
+    const fromFile = typeof cfg.apiKey === 'string' ? cfg.apiKey.trim() : '';
+    if (fromFile) return { key: fromFile, source: configFile() };
+  } catch {
+    // Absent, unreadable or malformed - indistinguishable from "not configured"
+    // as far as the caller is concerned, and reported as such below.
+  }
+
+  return { key: null, source: null };
+}
+
 let client = null;
-function getClient() {
-  // Constructed lazily so a missing key surfaces when you press Run, not as a
-  // crash on launch. The zero-arg constructor reads ANTHROPIC_API_KEY itself.
-  if (!client) client = new Anthropic();
+let clientKey = null;
+function getClient(apiKey) {
+  // Rebuilt when the key changes, so editing config.json mid-session is picked
+  // up instead of being masked by a cached client.
+  if (!client || clientKey !== apiKey) {
+    client = new Anthropic({ apiKey });
+    clientKey = apiKey;
+  }
   return client;
 }
 
+// A packaged app has no console, so a credential problem would otherwise be
+// invisible: PromptBench.jsx discards the reason (`throw new Error("request
+// failed")`) and shows one generic message for every failure. A native dialog
+// is the only place an installed user will actually see this.
+//
+// Suppressed under --no-dialogs so the smoke test cannot hang on a modal that
+// nothing is there to dismiss.
+const suppressDialogs = process.argv.includes('--no-dialogs');
+let credentialDialogShown = false;
+
+function reportCredentialProblem(message) {
+  console.error(`[Prompt-Bench] ${message}`);
+  if (suppressDialogs || credentialDialogShown) return;
+  credentialDialogShown = true; // once per session; the button is easy to re-press
+
+  const [win] = BrowserWindow.getAllWindows();
+  const options = {
+    type: 'warning',
+    title: 'Prompt-Bench needs an API key',
+    message,
+    detail:
+      `Create this file:\n\n${configFile()}\n\ncontaining:\n\n{ "apiKey": "sk-ant-..." }\n\n` +
+      'Then press the button again - no restart needed.\n\n' +
+      'Keys come from console.anthropic.com. API access is billed separately ' +
+      'from a Claude subscription, so a Pro or Max plan does not cover it.',
+    buttons: ['OK'],
+  };
+  // Not awaited: the reply is irrelevant and blocking here would stall the IPC
+  // handler the renderer is waiting on.
+  if (win) dialog.showMessageBox(win, options);
+  else dialog.showMessageBox(options);
+}
+
 ipcMain.handle('anthropic:messages', async (_event, body) => {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.error('[Prompt-Bench] ANTHROPIC_API_KEY is not set - see README.md step 3.');
-    return { ok: false, status: 401, error: 'ANTHROPIC_API_KEY is not set.' };
+  const { key, source } = await readApiKey();
+
+  if (!key) {
+    reportCredentialProblem('No Anthropic API key found.');
+    return {
+      ok: false,
+      status: 401,
+      error:
+        'No Anthropic API key found. Set ANTHROPIC_API_KEY, or create ' +
+        `${configFile()} containing {"apiKey":"sk-ant-..."}.`,
+    };
   }
 
   try {
     // body is forwarded verbatim from the renderer, so the model, max_tokens
     // and messages chosen inside PromptBench.jsx are what get sent. The SDK
     // adds x-api-key and anthropic-version, which the original fetch lacked.
-    const message = await getClient().messages.create(body);
+    const message = await getClient(key).messages.create(body);
     // Returned as-is: this is the same shape the raw endpoint returns, so
     // PromptBench's own .content / .stop_reason parsing works untouched.
     return { ok: true, status: 200, data: message };
   } catch (err) {
     // Typed SDK errors, most specific first.
     let reason = err?.message ?? 'Unknown error';
-    if (err instanceof Anthropic.AuthenticationError) reason = 'API key rejected.';
-    else if (err instanceof Anthropic.RateLimitError) reason = 'Rate limited - wait and retry.';
-    else if (err instanceof Anthropic.BadRequestError) reason = `Bad request: ${err.message}`;
+    if (err instanceof Anthropic.AuthenticationError) {
+      // Naming the source matters: "rejected" plus the wrong file is a much
+      // shorter debugging path than "rejected" alone.
+      reason = `API key rejected (loaded from ${source}).`;
+      reportCredentialProblem(reason);
+    } else if (err instanceof Anthropic.RateLimitError) {
+      reason = 'Rate limited - wait and retry.';
+    } else if (err instanceof Anthropic.BadRequestError) {
+      reason = `Bad request: ${err.message}`;
+    }
     console.error('[Prompt-Bench] Anthropic request failed:', reason);
     return { ok: false, status: err?.status ?? 500, error: reason };
   }
