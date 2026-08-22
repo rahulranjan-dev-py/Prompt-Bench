@@ -17,6 +17,12 @@ contextBridge.exposeInMainWorld('storage', {
   set: (key, value, isGlobal = false) => ipcRenderer.invoke('storage:set', key, value, isGlobal),
 });
 
+// --- window.hasAI ---------------------------------------------------
+// A plain boolean, resolved synchronously before the page loads, so the
+// component can decide what to render on its very first paint. Mirrors the
+// `!!window.storage` check it already uses to decide whether saving exists.
+contextBridge.exposeInMainWorld('hasAI', ipcRenderer.sendSync('ai:available'));
+
 // --- the API bridge -------------------------------------------------
 // Only a single narrow method is exposed. The renderer can ask for a
 // completion; it cannot read the API key, reach other IPC channels, or touch

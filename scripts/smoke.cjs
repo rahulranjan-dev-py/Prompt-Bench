@@ -18,8 +18,11 @@
 
 const { app, BrowserWindow } = require('electron');
 
-// main.js reads process.argv at module load, so this must precede the require.
-process.argv.push('--prod');
+// main.js reads process.argv at module load, so these must precede the require.
+// --no-dialogs matters: a credential failure otherwise opens a modal warning,
+// and there is nothing in a headless run to dismiss it, so the test would hang
+// rather than fail.
+process.argv.push('--prod', '--no-dialogs');
 require('../electron/main.js');
 
 const TIMEOUT_MS = 60_000;

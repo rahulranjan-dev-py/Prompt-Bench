@@ -421,6 +421,13 @@ async function callClaude(prompt) {
 const LIB_KEY = "bench:library";
 const hasStore = typeof window !== "undefined" && !!window.storage;
 
+/* Whether the two AI-backed features can work at all. Set by the desktop shell
+   from the API key it resolves; false in a plain browser, and false in the
+   desktop app until a key is configured. Everything else here is local
+   computation, so the app is fully usable with this off - the features that
+   need a key are simply not offered rather than failing when pressed. */
+const hasAI = typeof window !== "undefined" && !!window.hasAI;
+
 async function readLibrary() {
   try {
     const r = await window.storage.get(LIB_KEY, false);
@@ -743,10 +750,12 @@ ${rough}`
           <span className="pb-rule" />
         </div>
         <ol className="pb-steps">
+          {hasAI && (
           <li className="pb-step">
             <strong>Fix what I wrote</strong> — type your request the way you'd normally type it, badly and all. It picks
             a structure, splits your words into the right slots, and fills the gaps. Start here if you're stuck.
           </li>
+          )}
           <li className="pb-step">
             <strong>Build from scratch</strong> — pick a structure and fill the slots yourself. Every slot has a hint
             and a real example. Skip any that don't apply; blank slots are left out of the prompt.
@@ -888,6 +897,7 @@ ${rough}`
       <div className="pb-wrap">
         {panel === "saved" ? savedPanel : panel === "help" ? helpPanel : (
         <>
+        {hasAI && (
         <div className="pb-modes">
           <button className="pb-mode" data-on={mode === "build" ? "1" : "0"} onClick={() => setMode("build")}>
             Build from scratch
@@ -896,6 +906,7 @@ ${rough}`
             Fix what I wrote
           </button>
         </div>
+        )}
 
         {mode === "rewrite" ? (
           <div style={{ maxWidth: 720 }}>
@@ -1070,6 +1081,7 @@ ${rough}`
                     >
                       {copied === "main" ? "Copied" : "Copy prompt"}
                     </button>
+                    {hasAI && (
                     <button
                       className={busy === "sharpen" ? "pb-btn pb-working" : "pb-btn"}
                       onClick={sharpen}
@@ -1077,6 +1089,7 @@ ${rough}`
                     >
                       {busy === "sharpen" ? "Sharpening…" : "Sharpen with AI"}
                     </button>
+                    )}
                     <button className="pb-btn" onClick={saveCurrent} disabled={!shown.trim() || libState === "off"}>
                       Save
                     </button>

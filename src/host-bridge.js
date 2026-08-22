@@ -29,6 +29,18 @@ if (typeof window !== 'undefined' && window.electronAPI) {
     const body = JSON.parse(init?.body ?? '{}');
     const result = await window.electronAPI.sendMessages(body);
 
+    if (!result.ok) {
+      // PromptBench.jsx does `if (!res.ok) throw new Error("request failed")`,
+      // so the real reason never reaches the UI - every failure surfaces as the
+      // same "didn't come back cleanly" message, whether the key was missing,
+      // the key was rejected, or the model returned unparseable JSON. Logging
+      // it here makes it recoverable from DevTools (Ctrl+Shift+I) without
+      // modifying the component.
+      console.error(
+        `[Prompt-Bench] Claude request failed (${result.status}): ${result.error}`
+      );
+    }
+
     // PromptBench does `if (!res.ok) throw` then `await res.json()`, so the
     // return value only has to satisfy those two. Returning a real Response
     // would mean re-serialising for no benefit.
