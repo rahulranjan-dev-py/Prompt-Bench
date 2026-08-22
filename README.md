@@ -61,7 +61,8 @@ Prompt-Bench/
 ├─ vite.config.js        React plugin; base:'./' (required for file:// loads)
 ├─ index.html            Vite HTML entry; mounts #root
 ├─ electron/
-│  ├─ main.js            window creation, storage IPC, Anthropic proxy, CSP
+│  ├─ main.js            window creation, storage IPC, provider proxy, CSP
+│  ├─ providers.js       Groq <-> Anthropic request/response translation
 │  └─ preload.js         contextBridge: exposes window.storage + electronAPI
 ├─ src/
 │  ├─ main.jsx           React entry; mounts <App/>
@@ -74,6 +75,7 @@ Prompt-Bench/
 │  └─ icon-master.png    1024px source the .ico is generated from
 ├─ scripts/
 │  ├─ check-main.cjs     asserts the SDK bindings electron/main.js relies on
+│  ├─ check-providers.cjs asserts the Groq translation matches what the component parses
 │  ├─ check-build.mjs    asserts dist/ asset paths are relative
 │  ├─ smoke.cjs          launches the real app and asserts the wiring
 │  ├─ make-icon.py       regenerates icon.ico (manual; needs Pillow)
@@ -135,6 +137,39 @@ app. Create `%APPDATA%\Prompt-Bench\config.json`:
 ```json
 { "apiKey": "sk-ant-your-key-here" }
 ```
+
+### Using Groq instead of Anthropic
+
+Groq has a free tier and, unlike some free tiers, states it does not train on
+API inputs or outputs. Set `provider`:
+
+```json
+{
+  "provider": "groq",
+  "apiKey": "gsk_your-key-here",
+  "model": "openai/gpt-oss-120b"
+}
+```
+
+`model` is optional but worth setting: **Groq retires models regularly** — the
+obvious guess, `llama-3.3-70b-versatile`, is already deprecated. List currently
+active ids at `https://api.groq.com/openai/v1/models`, and if a model has been
+retired Groq's own error text is passed through verbatim so you can see which.
+
+`electron/providers.js` translates between Groq's OpenAI-style dialect and the
+Anthropic shape the component parses, so `PromptBench.jsx` never learns which
+provider answered.
+
+`config.json` takes precedence over environment variables. That inverts the
+earlier rule deliberately: otherwise a stale `ANTHROPIC_API_KEY` left in the
+environment would silently override an explicit `"provider": "groq"`.
+
+> **Untested against the live API.** `api.groq.com` was unreachable from the
+> environment this was built in, so the Groq path has never completed a real
+> request. Routing, translation and error handling are verified
+> (`scripts/check-providers.cjs`, and the app demonstrably sends its request to
+> Groq rather than Anthropic) — but the first successful Groq completion will be
+> yours.
 
 An environment variable is the wrong mechanism for an app launched from a
 shortcut: it inherits Explorer's *cached* environment, so `setx` frequently
@@ -360,6 +395,7 @@ Run the same checks locally:
 node --check electron/main.js
 node --check electron/preload.js
 node scripts/check-main.cjs    # SDK bindings electron/main.js depends on
+node scripts/check-providers.cjs # Groq <-> Anthropic translation
 npm run build
 node scripts/check-build.mjs   # asset paths must be relative for file://
 npx electron scripts/smoke.cjs # launches the app and asserts the wiring
