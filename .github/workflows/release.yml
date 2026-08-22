@@ -206,7 +206,7 @@ jobs:
           Both are archives rather than bare .exe files, because browsers and Windows
           treat a downloaded executable far more suspiciously than an archive.
 
-          Your saved prompt library lives in %APPDATA%\Prompt-Bench either way.
+          Your saved prompt library lives in %APPDATA%\prompt-bench either way.
 
           > The app is **unsigned**, so Windows SmartScreen shows "Windows protected
           > your PC" on first run. Choose **More info** then **Run anyway**.
@@ -226,7 +226,7 @@ jobs:
           Both are archives rather than bare .exe files, because browsers and Windows
           treat a downloaded executable far more suspiciously than an archive.
 
-          Your saved prompt library lives in %APPDATA%\Prompt-Bench either way.
+          Your saved prompt library lives in %APPDATA%\prompt-bench either way.
 
           > Code signed. SmartScreen builds reputation per publisher from download
           > volume, so a warning may still appear on early downloads even though the

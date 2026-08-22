@@ -15,7 +15,7 @@ provides two things a plain browser does not:
 
 | What the component calls | Artifacts provides | This app provides |
 |---|---|---|
-| `window.storage.get/set` | host storage API | `electron/preload.js` → IPC → `%APPDATA%\Prompt-Bench\storage.json` |
+| `window.storage.get/set` | host storage API | `electron/preload.js` → IPC → `%APPDATA%\prompt-bench\storage.json` |
 | `fetch('https://api.anthropic.com/v1/messages')` with **no auth header** | credentials injected by the host | `src/host-bridge.js` → IPC → `@anthropic-ai/sdk` in the main process |
 
 The Electron shell **emulates that host environment**, so the component needed
@@ -61,9 +61,12 @@ Prompt-Bench/
 ├─ vite.config.js        React plugin; base:'./' (required for file:// loads)
 ├─ index.html            Vite HTML entry; mounts #root
 ├─ electron/
-│  ├─ main.js            window creation, storage IPC, provider proxy, CSP
+│  ├─ main.js            windows, menu, storage IPC, provider proxy, CSP
 │  ├─ providers.js       Groq <-> Anthropic request/response translation
-│  └─ preload.js         contextBridge: exposes window.storage + electronAPI
+│  ├─ preload.js         contextBridge: exposes window.storage + electronAPI
+│  ├─ settings.html      the API-key window (shell-owned, not part of the app)
+│  ├─ settings.js        its renderer
+│  └─ settings-preload.js  its own narrow contextBridge surface
 ├─ src/
 │  ├─ main.jsx           React entry; mounts <App/>
 │  ├─ host-bridge.js     patches window.fetch → IPC (must be renderer-side)
@@ -131,12 +134,25 @@ setx ANTHROPIC_API_KEY "sk-ant-your-key-here"
 > Prompt-Bench`, and run `npm run dev` again. Skip this entirely and the app
 > still runs; only the Claude call fails.
 
-**Or use a config file instead** — which is the better option for the installed
-app. Create `%APPDATA%\Prompt-Bench\config.json`:
+**Or set it inside the app** — the easiest route, and the only one that needs no
+file editing at all:
+
+> **File → API key…** (or `Ctrl+,`)
+
+Pick a provider, paste the key, press *Save and reload*. The main window reloads
+and the AI features appear immediately. *Remove key* takes them away again.
+
+The window writes `%APPDATA%\prompt-bench\config.json`, and shows you that path,
+so the file route stays available:
 
 ```json
 { "apiKey": "sk-ant-your-key-here" }
 ```
+
+Note the folder is lowercase `prompt-bench`: the packaged app's bundled
+`package.json` carries no `productName`, so Electron's `app.getName()` returns
+the `name` field. Windows paths are case-insensitive, so either spelling
+navigates there, but that is the real name on disk.
 
 ### Using Groq instead of Anthropic
 
@@ -273,7 +289,7 @@ Two downloads on the [Releases page](../../releases), both archives:
 - **`...-win.zip`** — unzip anywhere and run `Prompt-Bench.exe`. Nothing is
   installed; runs from a USB stick.
 
-Your saved library lives in `%APPDATA%\Prompt-Bench` either way, so the two
+Your saved library lives in `%APPDATA%\prompt-bench` either way, so the two
 share state if you use both.
 
 `.github/workflows/release.yml` does the work. First bump the version — the

@@ -1,6 +1,6 @@
 // Electron main process. CommonJS on purpose: package.json has no
 // "type": "module", so .js here is CJS, which is what Electron's own docs use.
-const { app, BrowserWindow, dialog, ipcMain, session, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
@@ -285,8 +285,123 @@ ipcMain.handle('anthropic:messages', async (_event, body) => {
 });
 
 /* ------------------------------------------------------------------ */
+/*  Settings window                                                    */
+/*                                                                     */
+/*  Owned entirely by the shell: src/PromptBench.jsx is not involved,   */
+/*  so the component stays close to its Artifacts original. It exists   */
+/*  because hiding the AI features when no key is configured also hid   */
+/*  every hint that a key was possible - and the config path was only   */
+/*  named in an error message the hidden features could not produce.    */
+/* ------------------------------------------------------------------ */
+
+let settingsWindow = null;
+
+function openSettings() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.focus();
+    return;
+  }
+
+  settingsWindow = new BrowserWindow({
+    width: 560,
+    height: 620,
+    parent: mainWindow ?? undefined,
+    modal: false,          // non-modal: the key often has to be fetched from a browser
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    autoHideMenuBar: true, // the settings window has no menu of its own
+    backgroundColor: '#E4E6E1',
+    title: 'Prompt-Bench Settings',
+    webPreferences: {
+      preload: path.join(__dirname, 'settings-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  settingsWindow.loadFile(path.join(__dirname, 'settings.html'));
+  settingsWindow.on('closed', () => { settingsWindow = null; });
+}
+
+ipcMain.handle('settings:load', () => {
+  const cfg = readConfig();
+  const { provider } = resolveCredentials();
+  return {
+    provider,
+    // Only ever the key from the file. An ANTHROPIC_API_KEY inherited from the
+    // environment is not this window's to display or overwrite.
+    apiKey: typeof cfg.apiKey === 'string' ? cfg.apiKey : '',
+    model: typeof cfg.model === 'string' ? cfg.model : '',
+    path: configFile(),
+    defaults: providers.DEFAULT_MODEL,
+  };
+});
+
+ipcMain.handle('settings:save', async (_event, incoming) => {
+  const provider = providers.PROVIDERS.includes(incoming?.provider) ? incoming.provider : 'anthropic';
+  const apiKey = typeof incoming?.apiKey === 'string' ? incoming.apiKey.trim() : '';
+  const model = typeof incoming?.model === 'string' ? incoming.model.trim() : '';
+
+  // Merged into whatever is already there rather than replacing the file, so a
+  // hand-added field nobody told this window about is not silently dropped.
+  const cfg = { ...readConfig(), provider };
+  if (apiKey) cfg.apiKey = apiKey; else delete cfg.apiKey;
+  if (model) cfg.model = model; else delete cfg.model;
+
+  try {
+    await fs.mkdir(path.dirname(configFile()), { recursive: true });
+    await fs.writeFile(configFile(), JSON.stringify(cfg, null, 2) + '\n', 'utf8');
+  } catch (err) {
+    return { ok: false, error: `Could not write ${configFile()}: ${err.message}` };
+  }
+
+  // window.hasAI is resolved once per window load, so without reloading the
+  // main window the key would not take effect until the app was restarted -
+  // which is exactly the kind of silent nothing-happened this window exists
+  // to eliminate.
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload();
+  return { ok: true };
+});
+
+ipcMain.on('settings:close', () => {
+  if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.close();
+});
+
+function buildMenu() {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: 'File',
+      submenu: [
+        { label: 'API key\u2026', accelerator: 'CmdOrCtrl+,', click: openSettings },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        // Kept reachable: the DevTools console is where the proxy reports why
+        // a request failed.
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+  ]));
+}
+
+/* ------------------------------------------------------------------ */
 /*  Window                                                             */
 /* ------------------------------------------------------------------ */
+
+let mainWindow = null;
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -296,7 +411,10 @@ function createWindow() {
     minHeight: 640,
     show: false,                 // revealed on ready-to-show to avoid a white flash
     backgroundColor: '#E4E6E1',  // PromptBench's --panel colour
-    autoHideMenuBar: true,       // hides the default Windows menu bar; Alt reveals it
+    // Shown, not hidden behind Alt: the menu is the only place a user can
+    // discover the API-key settings, and hiding it was the reason the config
+    // file was undiscoverable in the first place.
+    autoHideMenuBar: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,    // renderer and preload get separate JS worlds
@@ -304,6 +422,9 @@ function createWindow() {
       sandbox: true,             // OS-level renderer sandbox; contextBridge still works
     },
   });
+
+  mainWindow = win;
+  win.on('closed', () => { if (mainWindow === win) mainWindow = null; });
 
   win.once('ready-to-show', () => win.show());
 
@@ -363,6 +484,7 @@ if (!app.requestSingleInstanceLock()) {
       });
     }
 
+    buildMenu();
     createWindow();
   });
 
