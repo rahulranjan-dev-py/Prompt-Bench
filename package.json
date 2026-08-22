@@ -1,6 +1,6 @@
 {
   "name": "prompt-bench",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "Prompt-Bench desktop app for Windows 11 (Electron + React + Vite)",
   "license": "MIT",
