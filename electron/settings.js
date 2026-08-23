@@ -9,7 +9,11 @@ const HINTS = {
   },
   groq: {
     provider: 'Free key from console.groq.com, no card required.',
-    model: 'Leave blank for the default. Groq retires models regularly - current ids are listed at api.groq.com/openai/v1/models.',
+    model: 'Press Load models to list what this key can actually use - the default may not be available on every plan.',
+  },
+  gemini: {
+    provider: 'Free key from aistudio.google.com/apikey. Note Google\u2019s free tier may use your prompts to improve its products; the paid tiers do not.',
+    model: 'Press Load models to list what this key can actually use.',
   },
 };
 
@@ -63,6 +67,37 @@ $('clear').addEventListener('click', async () => {
   const res = await window.settingsAPI.save({ provider: $('provider').value, apiKey: '', model: '' });
   if (res.ok) { $('apiKey').value = ''; setStatus('Key removed. The AI features are hidden again.', 'ok'); }
   else setStatus(res.error || 'Could not save.', 'err');
+});
+
+// Guessing a model id is what made a wrong default painful, so this asks the
+// provider what the key is entitled to rather than anyone assuming.
+$('loadModels').addEventListener('click', async () => {
+  const btn = $('loadModels');
+  btn.disabled = true;
+  btn.textContent = 'Loading…';
+  setStatus('Asking the provider which models this key can use…');
+
+  const res = await window.settingsAPI.models({
+    provider: $('provider').value,
+    apiKey: $('apiKey').value.trim(),
+  });
+
+  btn.disabled = false;
+  btn.textContent = 'Load models';
+
+  if (!res.ok) return setStatus(res.error || 'Could not list models.', 'err');
+
+  const list = $('modelList');
+  list.innerHTML = '';
+  for (const id of res.models) {
+    const opt = document.createElement('option');
+    opt.value = id;
+    list.appendChild(opt);
+  }
+  // Prefill only if empty, so a deliberate choice is never overwritten.
+  if (!$('model').value.trim()) $('model').value = res.models[0];
+  $('model').focus();
+  setStatus(`${res.models.length} models available. Click the field to pick one.`, 'ok');
 });
 
 $('cancel').addEventListener('click', () => window.settingsAPI.close());

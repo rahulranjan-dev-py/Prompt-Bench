@@ -1,4 +1,4 @@
-// Verifies the Groq <-> Anthropic translation in electron/providers.js.
+// Verifies the OpenAI-dialect <-> Anthropic translation in electron/providers.js.
 //
 // This exists because api.groq.com is unreachable from the environment this was
 // written in, so the integration has never been exercised end to end. Fixtures
@@ -27,22 +27,22 @@ const rendererRequest = {
 };
 
 check('model comes from config, not the renderer',
-  P.toGroqRequest(rendererRequest, 'openai/gpt-oss-20b').model, 'openai/gpt-oss-20b');
+  P.toOpenAIRequest(rendererRequest, 'openai/gpt-oss-20b').model, 'openai/gpt-oss-20b');
 
 check('falls back to the provider default when unset',
-  P.toGroqRequest(rendererRequest, null).model, P.DEFAULT_MODEL.groq);
+  P.toOpenAIRequest(rendererRequest, null).model, P.DEFAULT_MODEL.groq);
 
 check('max_tokens is carried through',
-  P.toGroqRequest(rendererRequest, 'm').max_tokens, 1000);
+  P.toOpenAIRequest(rendererRequest, 'm').max_tokens, 1000);
 
 check('string content passes through unchanged',
-  P.toGroqRequest(rendererRequest, 'm').messages,
+  P.toOpenAIRequest(rendererRequest, 'm').messages,
   [{ role: 'user', content: 'Turn this into a prompt' }]);
 
 // An Anthropic content array would stringify to "[object Object]" if not
 // flattened - silently corrupting the prompt rather than failing loudly.
 check('array content is flattened, not stringified',
-  P.toGroqRequest({ messages: [{ role: 'user', content: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }] }] }, 'm').messages,
+  P.toOpenAIRequest({ messages: [{ role: 'user', content: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }] }] }, 'm').messages,
   [{ role: 'user', content: 'ab' }]);
 
 /* ---- response translation ------------------------------------------ */
@@ -56,17 +56,17 @@ const groqTruncated = {
 };
 
 check('content becomes an Anthropic text block',
-  P.fromGroqResponse(groqOk).content, [{ type: 'text', text: '{"framework":"rtf"}' }]);
+  P.fromOpenAIResponse(groqOk).content, [{ type: 'text', text: '{"framework":"rtf"}' }]);
 
 check('finish_reason stop -> end_turn',
-  P.fromGroqResponse(groqOk).stop_reason, 'end_turn');
+  P.fromOpenAIResponse(groqOk).stop_reason, 'end_turn');
 
 // The component shows "was cut short" off this exact value.
 check('finish_reason length -> max_tokens',
-  P.fromGroqResponse(groqTruncated).stop_reason, 'max_tokens');
+  P.fromOpenAIResponse(groqTruncated).stop_reason, 'max_tokens');
 
 check('a malformed response degrades to empty text, not a throw',
-  P.fromGroqResponse({}).content, [{ type: 'text', text: '' }]);
+  P.fromOpenAIResponse({}).content, [{ type: 'text', text: '' }]);
 
 /* ---- the contract PromptBench.jsx actually depends on -------------- */
 
@@ -78,10 +78,10 @@ const parseLikeComponent = (data) => ({
 });
 
 check("the component's own parsing yields the text",
-  parseLikeComponent(P.fromGroqResponse(groqOk)), { text: '{"framework":"rtf"}', truncated: false });
+  parseLikeComponent(P.fromOpenAIResponse(groqOk)), { text: '{"framework":"rtf"}', truncated: false });
 
 check("the component's own parsing detects truncation",
-  parseLikeComponent(P.fromGroqResponse(groqTruncated)), { text: 'cut off here', truncated: true });
+  parseLikeComponent(P.fromOpenAIResponse(groqTruncated)), { text: 'cut off here', truncated: true });
 
 // Guard against the contract moving: if the component stops filtering on
 // b.type === "text" or stops testing stop_reason === "max_tokens", the
@@ -92,14 +92,56 @@ for (const marker of ['b.type === "text"', 'stop_reason === "max_tokens"']) {
   else failures.push(`component no longer contains ${marker} - the translation contract has moved`);
 }
 
+/* ---- Gemini shares the dialect, so it must share the behaviour ------ */
+
+check('gemini is a known provider', P.PROVIDERS.includes('gemini'), true);
+
+check('gemini chat endpoint is the OpenAI shim',
+  P.chatUrl('gemini'), 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions');
+
+check('groq chat endpoint unchanged',
+  P.chatUrl('groq'), 'https://api.groq.com/openai/v1/chat/completions');
+
+check('models endpoint derives from the same base',
+  P.modelsUrl('gemini'), 'https://generativelanguage.googleapis.com/v1beta/openai/models');
+
+// Google returns {error:{code,message,status}} where Groq returns OpenAI's
+// {error:{message,type}} - both nest the readable reason at error.message.
+check('a Google-shaped error is surfaced too',
+  P.errorMessage({ error: { code: 400, message: 'API key not valid', status: 'INVALID_ARGUMENT' } }, 400, 'gemini'),
+  'Gemini: API key not valid');
+
+check('gemini default model differs from groq',
+  P.DEFAULT_MODEL.gemini !== P.DEFAULT_MODEL.groq, true);
+
+/* ---- model list --------------------------------------------------- */
+
+check('model ids are extracted and sorted',
+  P.parseModelList({ data: [{ id: 'zebra' }, { id: 'alpha' }] }), ['alpha', 'zebra']);
+
+// Gemini returns ids prefixed with models/; the bare id is what a person
+// recognises, and the chat endpoint accepts either.
+check('the models/ prefix is stripped',
+  P.parseModelList({ data: [{ id: 'models/gemini-2.5-flash' }] }), ['gemini-2.5-flash']);
+
+check('a junk model list degrades to empty, not a throw',
+  P.parseModelList({ nope: true }), []);
+
 /* ---- errors --------------------------------------------------------- */
 
 check('Groq error text is surfaced verbatim',
-  P.groqErrorMessage({ error: { message: 'model `x` has been decommissioned' } }, 400),
+  P.errorMessage({ error: { message: 'model `x` has been decommissioned' } }, 400, 'groq'),
   'Groq: model `x` has been decommissioned');
 
+// Regression: Gemini's chat endpoint returns [{error:{...}}] where its models
+// endpoint returns {error:{...}}. Missing this turned a precise "API key not
+// valid" into a bare "request failed (HTTP 400)".
+check('an array-wrapped error is unwrapped',
+  P.errorMessage([{ error: { code: 400, message: 'Please pass a valid API key' } }], 400, 'gemini'),
+  'Gemini: Please pass a valid API key');
+
 check('an unparseable error still says something useful',
-  P.groqErrorMessage(null, 502), 'Groq request failed (HTTP 502).');
+  P.errorMessage(null, 502, 'groq'), 'Groq request failed (HTTP 502).');
 
 if (failures.length) {
   console.error(`\nProvider checks FAILED (${failures.length}):\n`);

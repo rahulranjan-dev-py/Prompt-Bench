@@ -123,11 +123,11 @@ function resolveCredentials() {
 
   const provider = providers.PROVIDERS.includes(String(cfg.provider).toLowerCase())
     ? String(cfg.provider).toLowerCase()
-    : process.env.ANTHROPIC_API_KEY?.trim() ? 'anthropic'
-    : process.env.GROQ_API_KEY?.trim() ? 'groq'
-    : 'anthropic';
+    // Otherwise infer from whichever provider's env var is actually set.
+    : providers.PROVIDERS.find((name) => process.env[providers.PROVIDER[name].envVar]?.trim())
+    || 'anthropic';
 
-  const envName = provider === 'groq' ? 'GROQ_API_KEY' : 'ANTHROPIC_API_KEY';
+  const envName = providers.PROVIDER[provider].envVar;
   const fromFile = typeof cfg.apiKey === 'string' ? cfg.apiKey.trim() : '';
   const fromEnv = process.env[envName]?.trim() || '';
 
@@ -199,26 +199,29 @@ function reportCredentialProblem(message) {
 // response are translated in electron/providers.js. Raw fetch rather than an
 // SDK: the shape is small and stable, and a second SDK would be a dependency
 // carried for one HTTP call.
-async function callGroq(body, key, model) {
-  const res = await fetch(providers.GROQ_ENDPOINT, {
+// Groq and Gemini both speak the OpenAI chat-completions dialect, so one
+// function serves both - they differ only in base URL and default model.
+// Raw fetch rather than an SDK: the shape is small and stable, and an SDK per
+// provider would be dependencies carried for one HTTP call each.
+async function callOpenAICompatible(body, key, model, provider) {
+  const res = await fetch(providers.chatUrl(provider), {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${key}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(providers.toGroqRequest(body, model)),
+    body: JSON.stringify(providers.toOpenAIRequest(body, model, provider)),
   });
 
   const json = await res.json().catch(() => null);
 
   if (!res.ok) {
-    const error = providers.groqErrorMessage(json, res.status);
-    return { ok: false, status: res.status, error };
+    return { ok: false, status: res.status, error: providers.errorMessage(json, res.status, provider) };
   }
 
   // Translated into the Anthropic shape, so PromptBench's own parsing works
   // untouched and never learns which provider answered.
-  return { ok: true, status: 200, data: providers.fromGroqResponse(json) };
+  return { ok: true, status: 200, data: providers.fromOpenAIResponse(json) };
 }
 
 async function callAnthropic(body, key, source) {
@@ -265,8 +268,8 @@ ipcMain.handle('anthropic:messages', async (_event, body) => {
 
   let result;
   try {
-    result = provider === 'groq'
-      ? await callGroq(body, key, model)
+    result = providers.PROVIDER[provider].dialect === 'openai'
+      ? await callOpenAICompatible(body, key, model, provider)
       : await callAnthropic(body, key, source);
   } catch (err) {
     // Network-level failure, which the SDK path handles internally but a bare
@@ -363,6 +366,32 @@ ipcMain.handle('settings:save', async (_event, incoming) => {
   // to eliminate.
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload();
   return { ok: true };
+});
+
+// Lets the settings window list the models a key can actually use, instead of
+// anyone guessing an id. This is the whole reason a wrong default was ever a
+// problem: the app cannot know which models a given key is entitled to.
+ipcMain.handle('settings:models', async (_event, { provider, apiKey }) => {
+  const cfg = providers.PROVIDER[provider];
+  if (!cfg || cfg.dialect !== 'openai') {
+    return { ok: false, error: `${cfg?.label ?? provider} does not publish a model list here.` };
+  }
+  const key = typeof apiKey === 'string' ? apiKey.trim() : '';
+  if (!key) return { ok: false, error: 'Paste a key first.' };
+
+  try {
+    const res = await fetch(providers.modelsUrl(provider), {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) return { ok: false, error: providers.errorMessage(json, res.status, provider) };
+
+    const models = providers.parseModelList(json);
+    if (!models.length) return { ok: false, error: 'The provider returned no models for this key.' };
+    return { ok: true, models };
+  } catch (err) {
+    return { ok: false, error: `Could not reach ${cfg.label}: ${err?.message ?? err}` };
+  }
 });
 
 ipcMain.on('settings:close', () => {

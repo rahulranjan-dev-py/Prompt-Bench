@@ -6,5 +6,6 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('settingsAPI', {
   load: () => ipcRenderer.invoke('settings:load'),
   save: (cfg) => ipcRenderer.invoke('settings:save', cfg),
+  models: (q) => ipcRenderer.invoke('settings:models', q),
   close: () => ipcRenderer.send('settings:close'),
 });
