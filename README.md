@@ -154,38 +154,41 @@ Note the folder is lowercase `prompt-bench`: the packaged app's bundled
 the `name` field. Windows paths are case-insensitive, so either spelling
 navigates there, but that is the real name on disk.
 
-### Using Groq instead of Anthropic
+### Choosing a provider
 
-Groq has a free tier and, unlike some free tiers, states it does not train on
-API inputs or outputs. Set `provider`:
+Three are supported. The settings window is the easiest way to switch, but
+`config.json` works too:
+
+| Provider | Cost | Trains on your inputs | Keys from |
+|---|---|---|---|
+| `anthropic` | paid | no | console.anthropic.com |
+| `groq` | free tier | no | console.groq.com |
+| `gemini` | free tier | **yes**, on the free tier | aistudio.google.com/apikey |
 
 ```json
-{
-  "provider": "groq",
-  "apiKey": "gsk_your-key-here",
-  "model": "openai/gpt-oss-120b"
-}
+{ "provider": "gemini", "apiKey": "AIza...", "model": "gemini-2.5-flash" }
 ```
 
-`model` is optional but worth setting: **Groq retires models regularly** — the
-obvious guess, `llama-3.3-70b-versatile`, is already deprecated. List currently
-active ids at `https://api.groq.com/openai/v1/models`, and if a model has been
-retired Groq's own error text is passed through verbatim so you can see which.
+**Don't guess the model.** Press **Load models** in the settings window: it asks
+the provider which models *that key* is entitled to and offers them in the
+field. A default that exists is not the same as a default your plan can use,
+which is exactly the failure this removes. If a model is rejected anyway, the
+provider's own error text comes through verbatim, naming it.
 
-`electron/providers.js` translates between Groq's OpenAI-style dialect and the
-Anthropic shape the component parses, so `PromptBench.jsx` never learns which
-provider answered.
+Groq and Gemini both speak an OpenAI-compatible dialect, so
+`electron/providers.js` translates once for both — `PromptBench.jsx` never
+learns which provider answered.
 
 `config.json` takes precedence over environment variables. That inverts the
 earlier rule deliberately: otherwise a stale `ANTHROPIC_API_KEY` left in the
-environment would silently override an explicit `"provider": "groq"`.
+environment would silently override an explicit choice of provider.
 
-> **Untested against the live API.** `api.groq.com` was unreachable from the
-> environment this was built in, so the Groq path has never completed a real
-> request. Routing, translation and error handling are verified
-> (`scripts/check-providers.cjs`, and the app demonstrably sends its request to
-> Groq rather than Anthropic) — but the first successful Groq completion will be
-> yours.
+> **How far each path is verified.** Gemini is exercised against the live API:
+> a request reaches Google and its rejection of a dummy key is surfaced verbatim,
+> so everything but a valid key is proven. Groq is not — `api.groq.com` is
+> unreachable from the environment this was built in, so routing, translation
+> and error handling are verified by fixtures and by the app demonstrably
+> addressing Groq, but no real Groq completion has ever happened.
 
 An environment variable is the wrong mechanism for an app launched from a
 shortcut: it inherits Explorer's *cached* environment, so `setx` frequently

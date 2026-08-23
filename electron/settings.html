@@ -32,6 +32,9 @@
       .hint { font-size: 12px; color: var(--mute); margin-top: 5px; line-height: 1.45; }
       .hint a { color: var(--signal); }
       .row { display: flex; gap: 9px; margin-top: 22px; }
+      .modelrow { display: flex; gap: 8px; }
+      .modelrow input { flex: 1; }
+      .modelrow button { white-space: nowrap; }
       button {
         font: inherit; font-weight: 600; padding: 9px 16px;
         border: 1px solid var(--line); border-radius: 6px;
@@ -58,14 +61,19 @@
     <select id="provider">
       <option value="anthropic">Anthropic — paid, best quality</option>
       <option value="groq">Groq — free tier, does not train on your inputs</option>
+      <option value="gemini">Gemini — free tier, but trains on your inputs</option>
     </select>
     <div class="hint" id="providerHint"></div>
 
     <label for="apiKey">API key</label>
     <input id="apiKey" type="password" spellcheck="false" autocomplete="off" placeholder="paste your key" />
 
-    <label for="model">Model <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
-    <input id="model" type="text" spellcheck="false" autocomplete="off" />
+    <label for="model">Model</label>
+    <div class="modelrow">
+      <input id="model" type="text" spellcheck="false" autocomplete="off" list="modelList" />
+      <button id="loadModels" type="button">Load models</button>
+    </div>
+    <datalist id="modelList"></datalist>
     <div class="hint" id="modelHint"></div>
 
     <div class="row">
