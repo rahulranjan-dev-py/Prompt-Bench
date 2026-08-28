@@ -29,6 +29,24 @@ if (typeof window !== 'undefined' && window.electronAPI) {
     const body = JSON.parse(init?.body ?? '{}');
     const result = await window.electronAPI.sendMessages(body);
 
+    if (result.ok) {
+      // PromptBench asks for raw JSON and then JSON.parse()s it. If a model
+      // answers with any preamble, or picks a framework id that is not one of
+      // the eleven, parsing throws inside the component's catch and the user
+      // sees the same generic message as an API failure - with nothing logged,
+      // because the request itself succeeded. Logging what actually came back
+      // is the only way to tell those two apart.
+      const text = (result.data?.content ?? [])
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text)
+        .join('\n');
+      console.info(
+        `[Prompt-Bench] reply from ${result.data?.model ?? 'the model'} ` +
+          `(${text.length} chars):`,
+        text.length > 400 ? `${text.slice(0, 400)}…` : text
+      );
+    }
+
     if (!result.ok) {
       // PromptBench.jsx does `if (!res.ok) throw new Error("request failed")`,
       // so the real reason never reaches the UI - every failure surfaces as the

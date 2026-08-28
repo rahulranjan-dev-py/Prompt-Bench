@@ -19,11 +19,23 @@ const HINTS = {
 
 let defaults = {};
 
+function addModelOption(id) {
+  const sel = $('model');
+  if ([...sel.options].some((o) => o.value === id)) return;
+  const opt = document.createElement('option');
+  opt.value = id;
+  opt.textContent = id;
+  sel.appendChild(opt);
+}
+
 function applyHints() {
   const p = $('provider').value;
   $('providerHint').textContent = HINTS[p].provider;
   $('modelHint').textContent = HINTS[p].model;
-  $('model').placeholder = defaults[p] || 'provider default';
+  // The default is provider-specific, so say which one "(provider default)"
+  // actually means rather than leaving it abstract.
+  const dflt = defaults[p];
+  $('model').options[0].textContent = dflt ? `(default: ${dflt})` : '(provider default)';
 }
 
 function setStatus(text, kind) {
@@ -37,13 +49,25 @@ function setStatus(text, kind) {
   defaults = cfg.defaults || {};
   $('provider').value = cfg.provider || 'anthropic';
   $('apiKey').value = cfg.apiKey || '';
+  // A model saved by hand will not be in the list until models are fetched, so
+  // add it as an option first - otherwise opening settings would silently reset
+  // a deliberate choice to the default.
+  if (cfg.model) addModelOption(cfg.model);
   $('model').value = cfg.model || '';
   $('path').textContent = cfg.path;
   applyHints();
   $('apiKey').focus();
 })();
 
-$('provider').addEventListener('change', applyHints);
+$('provider').addEventListener('change', () => {
+  // Model ids are provider-specific, so a list fetched for one is meaningless
+  // for another. Clearing it is honest; leaving it would offer ids that cannot
+  // work.
+  const sel = $('model');
+  sel.length = 1;
+  sel.value = '';
+  applyHints();
+});
 
 $('save').addEventListener('click', async () => {
   const key = $('apiKey').value.trim();
@@ -87,17 +111,15 @@ $('loadModels').addEventListener('click', async () => {
 
   if (!res.ok) return setStatus(res.error || 'Could not list models.', 'err');
 
-  const list = $('modelList');
-  list.innerHTML = '';
-  for (const id of res.models) {
-    const opt = document.createElement('option');
-    opt.value = id;
-    list.appendChild(opt);
-  }
-  // Prefill only if empty, so a deliberate choice is never overwritten.
-  if (!$('model').value.trim()) $('model').value = res.models[0];
-  $('model').focus();
-  setStatus(`${res.models.length} models available. Click the field to pick one.`, 'ok');
+  const sel = $('model');
+  const previous = sel.value;                 // a deliberate choice must survive
+  sel.length = 1;                             // keep the "(default…)" option
+  for (const id of res.models) addModelOption(id);
+  // Restore the previous pick if the provider still offers it; otherwise fall
+  // back to the default rather than silently selecting something unrelated.
+  sel.value = res.models.includes(previous) ? previous : '';
+  sel.focus();
+  setStatus(`${res.models.length} models available - pick one from the list.`, 'ok');
 });
 
 $('cancel').addEventListener('click', () => window.settingsAPI.close());
