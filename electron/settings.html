@@ -33,7 +33,7 @@
       .hint a { color: var(--signal); }
       .row { display: flex; gap: 9px; margin-top: 22px; }
       .modelrow { display: flex; gap: 8px; }
-      .modelrow input { flex: 1; }
+      .modelrow select { flex: 1; }
       .modelrow button { white-space: nowrap; }
       button {
         font: inherit; font-weight: 600; padding: 9px 16px;
@@ -70,10 +70,15 @@
 
     <label for="model">Model</label>
     <div class="modelrow">
-      <input id="model" type="text" spellcheck="false" autocomplete="off" list="modelList" />
+      <!-- A real <select>, not an <input list=...>. A datalist filters its
+           suggestions by what is already typed, so prefilling the field left it
+           offering a single entry and looking broken. A select just shows the
+           options. -->
+      <select id="model">
+        <option value="">(provider default)</option>
+      </select>
       <button id="loadModels" type="button">Load models</button>
     </div>
-    <datalist id="modelList"></datalist>
     <div class="hint" id="modelHint"></div>
 
     <div class="row">
